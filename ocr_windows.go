@@ -190,27 +190,67 @@ func ocrStep() {
 		return
 	}
 	w, h := int(rw), int(rh)
-	yellow := make([]bool, w*h)
-	white := make([]bool, w*h)
+	// testo chiaro della barra in alto a destra (bianco o giallino): K/D/A, CS, orologio
+	bright := make([]bool, w*h)
 	for i := 0; i < w*h; i++ {
 		b, g, r := int(buf[i*4]), int(buf[i*4+1]), int(buf[i*4+2])
-		// cifre dei CS: giallo chiaro; orologio: bianco/grigio chiaro
-		yellow[i] = r > 200 && g > 195 && b > 60 && b < 185 && abs(r-g) < 22
 		mx, mn := max3(r, g, b), min3(r, g, b)
-		white[i] = r > 150 && g > 150 && b > 150 && mx-mn < 35
+		white := r > 140 && g > 140 && b > 140 && mx-mn < 45
+		yel := r > 190 && g > 180 && b > 50 && abs(r-g) < 30
+		bright[i] = white || yel
 	}
-	minH := int(7 * s)
-	ys := glyphs(yellow, w, h, minH)
-	ws := glyphs(white, w, h, int(2*s))
-	csRight := -1
-	if len(ys) > 0 {
-		csRight = ys[len(ys)-1].x1
+	all := glyphs(bright, w, h, int(5*s))
+	// orologio: 5 glifi "cc:ss" con i due punti stretti e bassi, il più a destra
+	ci := -1
+	for i := len(all) - 5; i >= 0; i-- {
+		c := all[i : i+5]
+		hh := func(g glyph) int { return g.y1 - g.y0 + 1 }
+		ww := func(g glyph) int { return g.x1 - g.x0 + 1 }
+		ref := hh(c[0])
+		ok := ww(c[2]) <= int(4*s)+2 && hh(c[2]) < ref*85/100
+		for _, j := range []int{1, 3, 4} {
+			if abs(hh(c[j])-ref) > ref/4+1 {
+				ok = false
+			}
+		}
+		for j := 0; j < 4; j++ {
+			if c[j+1].x0-c[j].x1 > int(7*s)+2 {
+				ok = false
+			}
+		}
+		if ok {
+			ci = i
+			break
+		}
 	}
-	// orologio: glifi bianchi a destra dei CS
-	var clock []glyph
-	for _, g := range ws {
-		if g.x0 > csRight {
-			clock = append(clock, g)
+	var clock, ys []glyph
+	yellow, white := bright, bright
+	if ci >= 0 {
+		clock = all[ci : ci+5]
+		dh := 0
+		dw := 0
+		for _, j := range []int{0, 1, 3, 4} {
+			dh += clock[j].y1 - clock[j].y0 + 1
+			dw += clock[j].x1 - clock[j].x0 + 1
+		}
+		dh, dw = dh/4, dw/4
+		digitLike := func(g glyph) bool {
+			gh, gw := g.y1-g.y0+1, g.x1-g.x0+1
+			return abs(gh-dh) <= dh/5+1 && gw <= dw*3/2+1
+		}
+		// CS: le cifre subito a sinistra dell'orologio, dopo l'icona
+		i := ci - 1
+		for skip := 0; i >= 0 && skip < 3 && !digitLike(all[i]); skip++ {
+			i--
+		}
+		for ; i >= 0 && digitLike(all[i]); i-- {
+			if len(ys) > 0 && ys[0].x0-all[i].x1 > dh*6/10+1 {
+				break
+			}
+			ys = append([]glyph{all[i]}, ys...)
+			if len(ys) > 4 {
+				break
+			}
 		}
 	}
 	ocrMu.Lock()
@@ -225,7 +265,7 @@ func ocrStep() {
 				api = d.AllPlayers[i].Scores.CreepScore
 			}
 		}
-		log.Printf("OCR: schermo %dx%d, glifi gialli %d, glifi orologio %d, cifre imparate %v, CS dal gioco %d, ultima lettura %d", W, H, len(ys), len(clock), ocrTpl.Count, api, ocrValue)
+		log.Printf("OCR: schermo %dx%d, glifi %d, orologio trovato %v, cifre CS %d, cifre imparate %v, CS dal gioco %d, ultima lettura %d", W, H, len(all), ci >= 0, len(ys), ocrTpl.Count, api, ocrValue)
 	}
 	if ocrRes != H {
 		ocrTpl, ocrRes = digitTpl{}, H
