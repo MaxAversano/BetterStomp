@@ -71,6 +71,7 @@ func main() {
 	go lcuLoop()
 	go liveLoop()
 	go engineLoop()
+	go remoteLoop()
 	go patchLoop()
 	go startOverlay()
 

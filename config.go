@@ -82,6 +82,8 @@ type Settings struct {
 	Region         string          `json:"region"`
 	RiotAPIKey     string          `json:"riotApiKey"`
 	ProPlayers     []ProPlayer     `json:"proPlayers"`
+	RemoteURL      string          `json:"remoteUrl"`   // server statistiche (es. https://www.aversano.design/bs-data/)
+	RemoteToken    string          `json:"remoteToken"` // codice segreto del server
 	EngineEnabled  bool            `json:"engineEnabled"`
 	AutoRunes      bool            `json:"autoRunes"`
 	AutoSpells     bool            `json:"autoSpells"`

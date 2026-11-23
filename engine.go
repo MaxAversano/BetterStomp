@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -293,16 +295,19 @@ func newDB(p string) *DB {
 }
 
 type Engine struct {
-	mu      sync.RWMutex
-	db      *DB
-	prev    *DB
-	pools   map[string][]string
-	lastErr string
-	running bool
-	started time.Time
-	session int
-	cache   map[string]cachedBucket
-	dirty   bool
+	mu        sync.RWMutex
+	remote    *DB // statistiche raccolte dal server (sempre acceso)
+	remoteErr string
+	remoteAt  time.Time
+	db        *DB
+	prev      *DB
+	pools     map[string][]string
+	lastErr   string
+	running   bool
+	started   time.Time
+	session   int
+	cache     map[string]cachedBucket
+	dirty     bool
 }
 
 type cachedBucket struct {
@@ -836,27 +841,40 @@ func (e *Engine) merged(db *DB, mode string, tiers []string) *Bucket {
 	if db == nil {
 		return newBucket()
 	}
+	rem := e.remote
+	if db != e.db || rem == nil || rem.Patch != db.Patch {
+		rem = nil
+	}
 	ck := db.Patch + "|" + mode + "|" + strings.Join(tiers, ",")
+	if rem != nil {
+		ck += fmt.Sprintf("|r%d", rem.Total)
+	}
 	if c, ok := e.cache[ck]; ok && time.Since(c.at) < 90*time.Second {
 		return c.b
 	}
 	out := newBucket()
-	for _, t := range tiers {
-		b := db.Buckets[mode+"|"+t]
-		if b == nil {
-			continue
-		}
-		out.Matches += b.Matches
-		for k, v := range b.Bans {
-			out.Bans[k] += v
-		}
-		for k, a := range b.Champs {
-			d := out.Champs[k]
-			if d == nil {
-				d = newAgg()
-				out.Champs[k] = d
+	srcs := []*DB{db}
+	if rem != nil {
+		srcs = append(srcs, rem)
+	}
+	for _, src := range srcs {
+		for _, t := range tiers {
+			b := src.Buckets[mode+"|"+t]
+			if b == nil {
+				continue
 			}
-			d.merge(a)
+			out.Matches += b.Matches
+			for k, v := range b.Bans {
+				out.Bans[k] += v
+			}
+			for k, a := range b.Champs {
+				d := out.Champs[k]
+				if d == nil {
+					d = newAgg()
+					out.Champs[k] = d
+				}
+				d.merge(a)
+			}
 		}
 	}
 	e.cache[ck] = cachedBucket{out, time.Now()}
@@ -1070,7 +1088,7 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	}
 	// partite recenti di pro (lista dell'utente) e giocatori Master+ con questo campione
 	seenPG := map[string]bool{}
-	for _, db := range []*DB{e.db, e.prev} {
+	for _, db := range []*DB{e.db, e.remote, e.prev} {
 		if db == nil {
 			continue
 		}
@@ -1477,16 +1495,20 @@ func (e *Engine) Suggest(q SuggestReq) []Suggestion {
 }
 
 type EngineStatus struct {
-	Enabled  bool   `json:"enabled"`
-	HasKey   bool   `json:"hasKey"`
-	Running  bool   `json:"running"`
-	Patch    string `json:"patch"`
-	Total    int    `json:"total"`
-	Session  int    `json:"session"`
-	PerHour  int    `json:"perHour"`
-	Error    string `json:"error"`
-	KeyState string `json:"keyState"`
-	Prev     int    `json:"prev"`
+	Enabled   bool   `json:"enabled"`
+	HasKey    bool   `json:"hasKey"`
+	Running   bool   `json:"running"`
+	Patch     string `json:"patch"`
+	Total     int    `json:"total"`
+	Session   int    `json:"session"`
+	PerHour   int    `json:"perHour"`
+	Error     string `json:"error"`
+	KeyState  string `json:"keyState"`
+	Prev      int    `json:"prev"`
+	Remote    int    `json:"remote"`
+	RemoteAt  int64  `json:"remoteAt"`
+	RemoteErr string `json:"remoteErr"`
+	HasRemote bool   `json:"hasRemote"`
 }
 
 func (e *Engine) Status() EngineStatus {
@@ -1501,6 +1523,14 @@ func (e *Engine) Status() EngineStatus {
 	if e.prev != nil {
 		st.Prev = e.prev.Total
 	}
+	st.HasRemote = s.RemoteURL != "" && s.RemoteToken != ""
+	if e.remote != nil {
+		st.Remote = e.remote.Total
+	}
+	if !e.remoteAt.IsZero() {
+		st.RemoteAt = e.remoteAt.Unix()
+	}
+	st.RemoteErr = e.remoteErr
 	if e.running && time.Since(e.started) > time.Minute {
 		st.PerHour = int(float64(e.session) / time.Since(e.started).Hours())
 	}
@@ -1572,4 +1602,87 @@ func indexOf(list []string, v string) int {
 		}
 	}
 	return 5
+}
+
+// ---------- server statistiche (es. aversano.design su Aruba) ----------
+
+func remoteLoop() {
+	first := true
+	for {
+		if !first {
+			time.Sleep(5 * time.Minute)
+		}
+		first = false
+		for !staticReady() {
+			time.Sleep(time.Second)
+		}
+		s := getSettings()
+		if s.RemoteURL == "" || s.RemoteToken == "" {
+			continue
+		}
+		engine.ensurePatch()
+		patch := majorMinor(static.version())
+		path := filepath.Join(statsDir(), "remote_"+patch+".json")
+		engine.mu.RLock()
+		has := engine.remote != nil && engine.remote.Patch == patch
+		engine.mu.RUnlock()
+		if !has {
+			// all'avvio uso subito l'ultima copia scaricata
+			var db DB
+			if readJSON(path, &db) == nil && db.Buckets != nil {
+				fixDB(&db)
+				engine.mu.Lock()
+				engine.remote = &db
+				engine.cache = map[string]cachedBucket{}
+				engine.mu.Unlock()
+			}
+		}
+		base := strings.TrimRight(s.RemoteURL, "/")
+		if !strings.HasSuffix(base, ".php") {
+			base += "/data.php"
+		}
+		u := base + "?k=" + url.QueryEscape(s.RemoteToken) + "&patch=" + url.QueryEscape(patch)
+		b, err := httpGetBytes(u)
+		if err != nil {
+			engine.mu.Lock()
+			engine.remoteErr = "server non raggiungibile: " + err.Error()
+			engine.mu.Unlock()
+			continue
+		}
+		var db DB
+		if json.Unmarshal(b, &db) != nil || db.Buckets == nil {
+			engine.mu.Lock()
+			engine.remoteErr = "risposta del server non valida"
+			engine.mu.Unlock()
+			continue
+		}
+		fixDB(&db)
+		os.WriteFile(path, b, 0o644)
+		engine.mu.Lock()
+		engine.remote = &db
+		engine.remoteErr = ""
+		engine.remoteAt = time.Now()
+		engine.cache = map[string]cachedBucket{}
+		engine.mu.Unlock()
+	}
+}
+
+func fixDB(db *DB) {
+	if db.Seen == nil {
+		db.Seen = map[string]bool{}
+	}
+	if db.Pro == nil {
+		db.Pro = map[int][]ProGame{}
+	}
+	for _, b := range db.Buckets {
+		if b.Bans == nil {
+			b.Bans = map[int]int{}
+		}
+		if b.Champs == nil {
+			b.Champs = map[string]*ChampAgg{}
+		}
+		for _, a := range b.Champs {
+			fixAgg(a)
+		}
+	}
 }

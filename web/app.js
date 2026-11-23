@@ -200,8 +200,8 @@ function renderSide(){
   const e = S.st?.engine;
   if(e){
     h += `<div class="card side-card"><div class="kicker">Motore statistiche</div>
-      ${!e.hasKey?`<p class="small muted">Inserisci una chiave Riot API in <a href="#/impostazioni">Impostazioni</a> per sbloccare tier list, win rate e build per rango.</p>`
-      : `<div class="row" style="margin-top:8px"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total)}</b><span class="muted small">partite · patch ${esc(e.patch||'-')}</span></div>
+      ${!e.hasKey&&!e.hasRemote?`<p class="small muted">Inserisci una chiave Riot API in <a href="#/impostazioni">Impostazioni</a> per sbloccare tier list, win rate e build per rango.</p>`
+      : `<div class="row" style="margin-top:8px"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total+(e.remote||0))}</b><span class="muted small">partite · patch ${esc(e.patch||'-')}</span></div>${e.hasRemote?`<div class="tiny ${e.remoteErr?'bad':'dim'}" style="margin-top:4px">${e.remoteErr?esc(e.remoteErr):`di cui ${num(e.remote||0)} dal server`}</div>`:''}
          ${e.error?`<div class="small bad mt">${esc(e.error)}</div>`:''}`}</div>`;
   }
   h += `<a class="premcta" href="#/premium"><span class="small">Niente pubblicità</span><b>Passa a BetterStomp Premium</b></a>`;
@@ -862,6 +862,11 @@ function pageSettings(m){
           <div class="row" style="width:100%"><input type="password" id="apikey" placeholder="RGAPI-…" value="${esc(s.riotApiKey||'')}" style="flex:1"><button class="btn ghost sm" data-act="showkey">👁</button><button class="btn sm" data-act="savekey">Salva</button></div></div>
         <div class="setting"><div class="lbl"><b>Motore statistiche</b><small>Analizza partite pubbliche in background per tier list, win rate, build e matchup</small></div>${sw('engineEnabled',s.engineEnabled)}</div>
         <div id="enginebox"></div></div>
+      <div class="card"><h2>Server statistiche</h2>
+        <p class="small muted">Se hai caricato il motore sul tuo sito (cartella <b>bs-data</b>), raccoglie partite 24 ore su 24 anche a PC spento. BetterStomp scarica i dati ogni 5 minuti e li unisce ai suoi.</p>
+        <div class="setting" style="flex-wrap:wrap"><div class="lbl"><b>Indirizzo</b></div><input type="text" data-set="remoteUrl" placeholder="https://www.aversano.design/bs-data/" value="${esc(s.remoteUrl||'')}" style="width:100%"></div>
+        <div class="setting" style="flex-wrap:wrap"><div class="lbl"><b>Codice segreto</b><small>Lo stesso scritto in config.php sul server</small></div><input type="password" data-set="remoteToken" value="${esc(s.remoteToken||'')}" style="width:100%"></div>
+        <div id="remotebox" class="small"></div></div>
       <div class="card"><div class="ctitle"><h2>Pro player da seguire</h2><span class="sp"></span><button class="btn ghost sm" data-act="addpro">+ Aggiungi</button></div>
         <p class="small muted">Le loro partite più recenti compaiono in champion select, sotto "Pro e Master+". Inserisci il Riot ID dell'account (Nome#TAG) e la regione: ne viene controllato uno ogni 3 minuti.</p>
         <div id="prolist"></div></div>
@@ -882,6 +887,10 @@ function drawProList(){
     <button class="iconbtn" data-act="delpro" data-i="${i}" title="Rimuovi">✕</button></div>`).join('') : `<div class="small dim">Nessun pro inserito. Anche senza, vedi comunque le partite dei giocatori Master, Gran Maestro e Challenger.</div>`;
 }
 function updateEngineBox(){
+  const rb = $('#remotebox'), e0 = S.st?.engine;
+  if(rb && e0){ const h = !e0.hasRemote ? '<span class="dim">Non configurato</span>' : e0.remoteErr ? `<span class="bad">${esc(e0.remoteErr)}</span>`
+      : `<span class="good">● Collegato</span> · <b>${num(e0.remote)}</b> partite sul server${e0.remoteAt?` · aggiornato ${ago(e0.remoteAt*1000)}`:''}`;
+    if(rb._h!==h){ rb.innerHTML=h; rb._h=h; } }
   const el = $('#enginebox'), e = S.st?.engine; if(!el||!e) return;
   const ks = {ok:'<span class="good">valida</span>',invalid:'<span class="bad">non valida o scaduta</span>'}[e.keyState]||'<span class="dim">non verificata</span>';
   const h = `<div class="stats mt"><div class="stat"><div class="k">Partite (patch ${esc(e.patch||'-')})</div><div class="v">${num(e.total)}</div></div>

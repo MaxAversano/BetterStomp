@@ -1,0 +1,3 @@
+server/bs-data/config.php
+server/bs-data/store/*.json
+server/bs-data/store/*.lock
