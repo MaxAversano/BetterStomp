@@ -141,6 +141,14 @@ func selfUpdate() error {
 
 func cleanupOldExe() {
 	if exe, err := os.Executable(); err == nil {
+		// aggiornamento lasciato in cartella mentre l'app era chiusa: lo applica al prossimo avvio
+		if upd := filepath.Join(filepath.Dir(exe), "BetterStomp.update.exe"); fileExists(upd) {
+			if selfUpdate() == nil {
+				restartApp()
+				return
+			}
+			os.Remove(upd)
+		}
 		for i := 0; i < 10; i++ {
 			if os.Remove(exe+".old") == nil || !fileExists(exe+".old") {
 				return

@@ -932,35 +932,95 @@ func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
 	if db != nil {
 		patch = db.Patch
 	}
-	if b.Matches < 200 && e.prev != nil {
-		pb := e.merged(e.prev, mode, tierSet(tf))
-		if pb.Matches > b.Matches {
-			b, patch = pb, e.prev.Patch
+	// patch precedente e archivio come "base": con poche partite nella patch attuale i
+	// win rate da sole decine di partite sarebbero quasi casuali (es. 77% su 9 partite)
+	type acc struct{ n, w int }
+	prior := map[string]*acc{}
+	priorM, priorBans := 0, map[int]int{}
+	addPrior := func(pb *Bucket) {
+		if pb == nil || pb.Matches == 0 {
+			return
+		}
+		priorM += pb.Matches
+		for c, n := range pb.Bans {
+			priorBans[c] += n
+		}
+		for k, a := range pb.Champs {
+			if prior[k] == nil {
+				prior[k] = &acc{}
+			}
+			prior[k].n += a.N
+			prior[k].w += a.W
 		}
 	}
-	if b.Matches < 200 && e.legacy != nil && mode == "ranked" {
-		if lb := e.merged(e.legacy, mode, Tiers); lb.Matches > b.Matches {
-			b, patch = lb, e.legacy.Patch
-		}
+	if e.prev != nil && (db == nil || e.prev.Patch != db.Patch) {
+		addPrior(e.merged(e.prev, mode, tierSet(tf)))
 	}
-	if b.Matches == 0 {
+	if e.legacy != nil && mode == "ranked" {
+		addPrior(e.merged(e.legacy, mode, Tiers))
+	}
+	if b.Matches+priorM == 0 {
 		return nil, 0, patch
 	}
-	minGames := int(math.Max(8, float64(b.Matches)*0.004))
+	if b.Matches < 300 && priorM > 0 {
+		if patch != "" {
+			patch += " + patch precedenti"
+		} else if e.legacy != nil {
+			patch = e.legacy.Patch
+		}
+	}
+	keys := map[string]bool{}
+	for k := range b.Champs {
+		keys[k] = true
+	}
+	for k := range prior {
+		keys[k] = true
+	}
+	totM := float64(b.Matches + priorM)
+	minGames := int(math.Max(20, totM*0.0015))
+	// partite totali per campione: un ruolo giocato raramente (es. Briar mid) non entra in classifica
+	champTot := map[int]int{}
+	for k := range keys {
+		c, _ := splitKey(k)
+		if a := b.Champs[k]; a != nil {
+			champTot[c] += a.N
+		}
+		if a := prior[k]; a != nil {
+			champTot[c] += a.n
+		}
+	}
 	var rows []TierRow
-	for k, a := range b.Champs {
+	for k := range keys {
 		c, p := splitKey(k)
 		if pos != "" && pos != "ALL" && p != pos {
 			continue
 		}
-		if a.N < minGames {
+		cn, cw := 0, 0
+		if a := b.Champs[k]; a != nil {
+			cn, cw = a.N, a.W
+		}
+		pn, pw := 0, 0
+		if a := prior[k]; a != nil {
+			pn, pw = a.n, a.w
+		}
+		if cn+pn < minGames {
 			continue
 		}
-		wr := smooth(a.W, a.N, 0.5, 30)
-		pr := float64(a.N) / float64(b.Matches)
-		br := float64(b.Bans[c]) / float64(b.Matches)
+		if p != "ALL" && (float64(cn+pn) < float64(champTot[c])*0.15 || float64(cn+pn)/totM < 0.008) {
+			continue
+		}
+		// win rate: partite della patch attuale + al massimo 300 "partite" di base dalle precedenti,
+		// più un piccolo richiamo verso il 50% per i campioni con pochi dati
+		k0 := math.Min(float64(pn), 300)
+		pwr := 0.5
+		if pn > 0 {
+			pwr = float64(pw) / float64(pn)
+		}
+		wr := (float64(cw) + pwr*k0 + 0.5*60) / (float64(cn) + k0 + 60)
+		pr := float64(cn+pn) / totM
+		br := float64(b.Bans[c]+priorBans[c]) / totM
 		score := (wr-0.5)*220 + math.Min(pr, 0.2)*35 + math.Min(br, 0.4)*8
-		rows = append(rows, TierRow{c, p, a.N, float64(a.W) / float64(a.N), pr, br, score, ""})
+		rows = append(rows, TierRow{c, p, cn + pn, wr, pr, br, score, ""})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Score > rows[j].Score })
 	n := float64(len(rows))
@@ -981,7 +1041,7 @@ func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
 			rows[i].Tier = "D"
 		}
 	}
-	return rows, b.Matches, patch
+	return rows, b.Matches + priorM, patch
 }
 
 type RunePage struct {
@@ -1268,6 +1328,15 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	}
 	r.BuildGames = a.N
 	r.WinRate = float64(hdr.W) / float64(hdr.N)
+	if a != hdr { // poche partite: stesso calcolo della tier list (patch attuale + base dalle precedenti)
+		pn, pw := a.N-hdr.N, a.W-hdr.W
+		k0 := math.Min(float64(pn), 300)
+		pwr := 0.5
+		if pn > 0 {
+			pwr = float64(pw) / float64(pn)
+		}
+		r.WinRate = (float64(hdr.W) + pwr*k0 + 0.5*25) / (float64(hdr.N) + k0 + 25)
+	}
 	r.PickRate = float64(hdr.N) / math.Max(1, float64(b.Matches))
 	r.BanRate = float64(b.Bans[champ]) / math.Max(1, float64(b.Matches))
 	n := float64(a.N)
