@@ -45,14 +45,20 @@ func setupAPI(mux *http.ServeMux) {
 		lastPing.Store(time.Now().Unix())
 		d, gt := live.snapshot()
 		jsonOut(w, map[string]any{
-			"client":   getClientState(),
-			"version":  static.version(),
-			"engine":   engine.Status(),
-			"inGame":   d != nil,
-			"gameTime": gt,
-			"autoTier": autoTier(),
-			"riotKey":  riot.getStatus(),
+			"client":    getClientState(),
+			"version":   static.version(),
+			"engine":    engine.Status(),
+			"inGame":    d != nil,
+			"gameTime":  gt,
+			"autoTier":  autoTier(),
+			"riotKey":   riot.getStatus(),
+			"frameless": isFrameless(),
 		})
+	})
+
+	mux.HandleFunc("/api/win", func(w http.ResponseWriter, r *http.Request) {
+		windowAction(r.URL.Query().Get("a"))
+		w.WriteHeader(204)
 	})
 
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {

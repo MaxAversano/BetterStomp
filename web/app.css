@@ -406,7 +406,7 @@ body.light .bzbox{background:var(--bg2)!important;border-color:var(--line2)!impo
 .vtabs{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:14px}
 .vtab{font:inherit;color:inherit;text-align:left;cursor:pointer;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);transition:.15s;display:flex;flex-direction:column;gap:7px}
 .vtab:hover{border-color:var(--line2)}
-.vtab.on{background:linear-gradient(var(--card2),var(--card2)) padding-box,var(--grad) border-box;border:1px solid transparent;box-shadow:0 8px 24px -12px rgba(139,108,255,.6)}
+.vtab.on{background:linear-gradient(var(--bg2),var(--bg2)) padding-box,var(--grad) border-box;border:1px solid transparent;box-shadow:0 8px 24px -12px rgba(139,108,255,.6)}
 .vtab .vtop{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .vtab .vn{font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vtab .vimgs{display:flex;gap:4px}.vtab .vimgs img{width:30px;height:30px;border-radius:8px;border:1px solid var(--line2)}
@@ -453,3 +453,39 @@ body.light .bzbox{background:var(--bg2)!important;border-color:var(--line2)!impo
 .abdesc .d{color:var(--muted);font-size:13px;line-height:1.55;margin-top:6px}
 .extlinks{align-items:center;gap:8px;opacity:.85}
 @media (max-width:1150px){.cbgrid{grid-template-columns:1fr 1fr}.cbgrid .span2{grid-column:1/-1}}
+
+/* ===== finestra senza bordi ===== */
+.winbtns{display:none;margin-left:2px;margin-right:-10px;gap:2px}
+body.frameless .winbtns{display:flex}
+body.frameless .top{user-select:none;cursor:default}
+.winbtns button{width:38px;height:32px;border:0;border-radius:9px;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer;transition:.12s}
+.winbtns button:hover{background:var(--card2);color:var(--text)}
+.winbtns button.cl:hover{background:#e5484d;color:#fff}
+.winbtns svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round}
+
+/* ===== build stile onetricks ===== */
+.otgrid{display:grid;grid-template-columns:1.55fr 1fr;gap:12px;align-items:start}
+.otgrid>.col{display:flex;flex-direction:column;gap:12px}
+.otgrid .cbsec{margin-top:0}
+.mt12{margin-top:12px}.mb6{margin-bottom:6px}
+.vtab .vtop{justify-content:flex-start}
+.vtab .ks{width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.35);flex:none}
+.vtab .vfoot{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px}
+.olist{display:flex;flex-direction:column;gap:4px}
+.orow{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:12px;border:1px solid transparent;transition:.12s}
+.orow[data-act]{cursor:pointer}
+.orow:hover{background:var(--card2)}
+.orow.on{background:var(--card2);border-color:var(--line2)}
+.oic{display:flex;align-items:center;gap:5px}
+.oic>img{width:32px;height:32px;border-radius:8px;border:1px solid var(--line2)}
+.oic .ks{width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.35)}
+.oic .rsm{width:22px;height:22px;border-radius:50%;border:0;opacity:.9}
+.oic .rsm.st{width:18px;height:18px;margin-left:4px;opacity:.7}
+.oic .skey{width:28px;height:28px;font-size:13px;border-radius:8px}
+.ost{display:flex;flex-direction:column;align-items:flex-end;min-width:58px;line-height:1.2}
+.ost b{font-size:13px}
+.pop{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:8px}
+.popc{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10.5px}
+.popc img{width:40px;height:40px;border-radius:10px;border:1px solid var(--line2);margin-bottom:3px}
+.popc b{font-size:11px}
+@media (max-width:1150px){.otgrid{grid-template-columns:1fr}}

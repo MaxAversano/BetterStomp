@@ -93,6 +93,7 @@ type Settings struct {
 	RiotAPIKey     string          `json:"riotApiKey"`
 	ProPlayers     []ProPlayer     `json:"proPlayers"`
 	RemoteURL      string          `json:"remoteUrl"`   // server statistiche (es. https://www.aversano.design/bs-data/)
+	NativeFrame    bool            `json:"nativeFrame"` // usa la barra di Windows invece di quella dell'app
 	RemoteToken    string          `json:"remoteToken"` // codice segreto del server
 	EngineEnabled  bool            `json:"engineEnabled"`
 	AutoRunes      bool            `json:"autoRunes"`

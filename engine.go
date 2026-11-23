@@ -78,6 +78,7 @@ type ChampAgg struct {
 	Skills map[string]*Stat `json:"skills"`
 	Seq    map[string]*Stat `json:"seq"`    // ordine completo dei primi 15 livelli
 	Builds map[string]*Stat `json:"builds"` // varianti: "stivali:ogg1,ogg2,ogg3"
+	LR     map[string]*Stat `json:"lr"`     // primo oggetto + pagina rune: "ogg|runeKey"
 	Lane   map[int]*Stat    `json:"lane"`
 	Vs     map[int]*Stat    `json:"vs"`
 	With   map[int]*Stat    `json:"with"`
@@ -92,7 +93,7 @@ type ChampAgg struct {
 
 func newAgg() *ChampAgg {
 	return &ChampAgg{Items: map[int]*Stat{}, Boots: map[int]*Stat{}, Start: map[string]*Stat{}, Runes: map[string]*Stat{},
-		Spells: map[string]*Stat{}, Skills: map[string]*Stat{}, Seq: map[string]*Stat{}, Builds: map[string]*Stat{}, Lane: map[int]*Stat{}, Vs: map[int]*Stat{}, With: map[int]*Stat{}}
+		Spells: map[string]*Stat{}, Skills: map[string]*Stat{}, Seq: map[string]*Stat{}, Builds: map[string]*Stat{}, LR: map[string]*Stat{}, Lane: map[int]*Stat{}, Vs: map[int]*Stat{}, With: map[int]*Stat{}}
 }
 
 // file salvati da versioni precedenti possono non avere alcune mappe
@@ -121,6 +122,9 @@ func fixAgg(a *ChampAgg) {
 	}
 	if a.Builds == nil {
 		a.Builds = n.Builds
+	}
+	if a.LR == nil {
+		a.LR = n.LR
 	}
 	if a.Lane == nil {
 		a.Lane = n.Lane
@@ -180,6 +184,7 @@ func (a *ChampAgg) merge(o *ChampAgg) {
 	mergeS(a.Skills, o.Skills)
 	mergeS(a.Seq, o.Seq)
 	mergeS(a.Builds, o.Builds)
+	mergeS(a.LR, o.LR)
 	mergeI(a.Lane, o.Lane)
 	mergeI(a.Vs, o.Vs)
 	mergeI(a.With, o.With)
@@ -536,6 +541,9 @@ func engineLoop() {
 	lastSave := time.Now()
 	for {
 		s := getSettings()
+		if staticReady() {
+			engine.ensurePatch() // dati locali e del server disponibili anche senza chiave Riot
+		}
 		if !s.EngineEnabled || strings.TrimSpace(s.RiotAPIKey) == "" || !staticReady() {
 			engine.mu.Lock()
 			engine.running = false
@@ -726,6 +734,9 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 		}
 		if rk := runeKey(p); rk != "" {
 			addS(a.Runes, rk, p.Win)
+			if len(path) > 0 {
+				addS(a.LR, fmt.Sprintf("%d|%s", path[0], rk), p.Win)
+			}
 		}
 		s1, s2 := p.Spell1, p.Spell2
 		if s1 > s2 {
@@ -1015,17 +1026,20 @@ type PosShare struct {
 }
 
 type BuildVariant struct {
-	Label       string  `json:"label"`
-	Path        []int   `json:"path"`
-	Boots       int     `json:"boots"`
-	Games       int     `json:"games"`
-	WinRate     float64 `json:"winRate"`
-	Share       float64 `json:"share"`
-	Core        []int   `json:"core"`
-	Situational []int   `json:"situational"`
+	Label       string    `json:"label"`
+	Path        []int     `json:"path"`
+	Boots       int       `json:"boots"`
+	Games       int       `json:"games"`
+	WinRate     float64   `json:"winRate"`
+	Share       float64   `json:"share"`
+	Core        []int     `json:"core"`
+	Situational []int     `json:"situational"`
+	Runes       *RunePage `json:"runes,omitempty"`
+	Keystone    int       `json:"keystone,omitempty"`
 }
 
 type BuildResult struct {
+	BuildGames  int             `json:"buildGames"`
 	SkillSeq    string          `json:"skillSeq"`
 	SkillSeqWR  float64         `json:"skillSeqWR"`
 	SkillSeqN   int             `json:"skillSeqN"`
@@ -1062,6 +1076,12 @@ type BuildResult struct {
 	Source      string          `json:"source"`
 	Personal    bool            `json:"personal"`
 	Widened     bool            `json:"widened"`
+	StartSets   []Opt           `json:"startSets"`
+	SpellSets   []Opt           `json:"spellSets"`
+	SkillOrders []Opt           `json:"skillOrders"`
+	BootsList   []Opt           `json:"bootsList"`
+	ItemsList   []Opt           `json:"itemsList"`
+	RunePages   []*RunePage     `json:"runePages"`
 }
 
 func topS(m map[string]*Stat, min int) (string, *Stat) {
@@ -1075,6 +1095,62 @@ func topS(m map[string]*Stat, min int) (string, *Stat) {
 		}
 	}
 	return bk, best
+}
+
+// un'opzione con quante volte è stata scelta (alla onetricks.gg)
+type Opt struct {
+	Key     string  `json:"key"`
+	IDs     []int   `json:"ids"`
+	Games   int     `json:"games"`
+	WinRate float64 `json:"winRate"`
+	Pick    float64 `json:"pick"`
+}
+
+func topOpts(m map[string]*Stat, total, n, min int, ids bool) []Opt {
+	var out []Opt
+	if total <= 0 { // percentuale sul totale delle scelte registrate
+		for _, v := range m {
+			total += v.N
+		}
+	}
+	for k, v := range m {
+		if v.N < min {
+			continue
+		}
+		o := Opt{Key: k, Games: v.N, WinRate: float64(v.W) / float64(v.N), Pick: float64(v.N) / math.Max(1, float64(total))}
+		if ids {
+			seen := map[int]bool{}
+			for _, x := range strings.Split(strings.SplitN(k, "|", 2)[0], ",") {
+				if id, err := strconv.Atoi(x); err == nil && !seen[id] {
+					o.IDs = append(o.IDs, id)
+					seen[id] = true
+				}
+			}
+		}
+		out = append(out, o)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Games != out[j].Games {
+			return out[i].Games > out[j].Games
+		}
+		return out[i].Key < out[j].Key
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+func itemOpts(m map[int]*Stat, total, n, min int) []Opt {
+	var out []Opt
+	for _, id := range sortedItems(m) {
+		v := m[id]
+		if v.N < min || len(out) >= n {
+			break
+		}
+		out = append(out, Opt{IDs: []int{id}, Games: v.N, WinRate: float64(v.W) / float64(v.N), Pick: float64(v.N) / math.Max(1, float64(total))})
+	}
+	return out
 }
 
 func sortedItems(m map[int]*Stat) []int {
@@ -1172,13 +1248,33 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	}
 	r.Source = "stats"
 	r.Games, r.Matches = a.N, b.Matches
-	r.WinRate = float64(a.W) / float64(a.N)
-	r.PickRate = float64(a.N) / math.Max(1, float64(b.Matches))
+	hdr := a
+	// poche partite nella patch: build, rune e oggetti anche dalle patch precedenti
+	if a.N < 400 {
+		m := newAgg()
+		m.merge(a)
+		key := fmt.Sprintf("%d|%s", champ, p)
+		if e.prev != nil && r.Patch != e.prev.Patch {
+			if a2 := e.merged(e.prev, mode, tierSet(tf)).Champs[key]; a2 != nil {
+				m.merge(a2)
+			}
+		}
+		if e.legacy != nil && mode == "ranked" && r.Patch != e.legacy.Patch {
+			if a2 := e.merged(e.legacy, mode, Tiers).Champs[key]; a2 != nil {
+				m.merge(a2)
+			}
+		}
+		a = m
+	}
+	r.BuildGames = a.N
+	r.WinRate = float64(hdr.W) / float64(hdr.N)
+	r.PickRate = float64(hdr.N) / math.Max(1, float64(b.Matches))
 	r.BanRate = float64(b.Bans[champ]) / math.Max(1, float64(b.Matches))
 	n := float64(a.N)
-	r.KDA = [3]float64{float64(a.K) / n, float64(a.D) / n, float64(a.A) / n}
-	if a.Dur > 0 {
-		r.CSMin = float64(a.CS) / (float64(a.Dur) / 60)
+	hn := float64(hdr.N)
+	r.KDA = [3]float64{float64(hdr.K) / hn, float64(hdr.D) / hn, float64(hdr.A) / hn}
+	if hdr.Dur > 0 {
+		r.CSMin = float64(hdr.CS) / (float64(hdr.Dur) / 60)
 	}
 	min := int(math.Max(2, n*0.02))
 	// rune: le due pagine più giocate
@@ -1206,6 +1302,25 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 			r.RunesAlt = pg
 		}
 	}
+	r.StartSets = topOpts(a.Start, 0, 3, 1, true)
+	r.SpellSets = topOpts(a.Spells, 0, 3, 1, true)
+	r.BootsList = itemOpts(a.Boots, a.N, 4, 2)
+	r.ItemsList = itemOpts(a.Items, a.N, 16, 2)
+	for _, o := range topOpts(a.Runes, a.N, 4, min, false) {
+		if pg := parseRuneKey(o.Key); pg != nil {
+			pg.Games, pg.WinRate, pg.Source = o.Games, o.WinRate, "Statistiche BetterStomp"
+			r.RunePages = append(r.RunePages, pg)
+		}
+	}
+	prio := map[string]*Stat{}
+	for k, v := range a.Skills {
+		pk := strings.SplitN(k, "|", 2)[0]
+		if prio[pk] == nil {
+			prio[pk] = &Stat{}
+		}
+		prio[pk].merge(v)
+	}
+	r.SkillOrders = topOpts(prio, 0, 3, 1, false)
 	if k, s := topS(a.Spells, 1); s != nil {
 		for _, x := range strings.Split(k, ",") {
 			v, _ := strconv.Atoi(x)
@@ -1247,7 +1362,7 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	if len(boots) > 1 && len(r.Situational) < 10 {
 		r.Situational = append(r.Situational, boots[1])
 	}
-	// 3-4 build alternative con il loro win rate
+	// 3-6 build alternative con il loro win rate, ognuna con la sua pagina di rune
 	var bk []kv
 	tot := 0
 	for k, v := range a.Builds {
@@ -1255,15 +1370,11 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 		tot += v.N
 	}
 	sort.Slice(bk, func(i, j int) bool { return bk[i].s.N > bk[j].s.N })
-	minB := int(math.Max(2, float64(tot)*0.03))
-	usedLead := map[int]bool{}
-	for _, x := range bk {
-		if len(r.Variants) >= 6 || x.s.N < minB {
-			break
-		}
-		parts := strings.SplitN(x.k, ":", 2)
+	minB := int(math.Max(3, math.Max(float64(tot)*0.02, float64(a.N)*0.003)))
+	parseB := func(k string) (int, []int) {
+		parts := strings.SplitN(k, ":", 2)
 		if len(parts) != 2 {
-			continue
+			return 0, nil
 		}
 		bt, _ := strconv.Atoi(parts[0])
 		var path []int
@@ -1271,25 +1382,42 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 			v, _ := strconv.Atoi(y)
 			path = append(path, v)
 		}
-		// varianti davvero diverse: oggetto iniziale diverso o almeno due oggetti diversi
-		dup := false
-		for _, ov := range r.Variants {
-			same := 0
-			for _, a1 := range ov.Path {
-				for _, b1 := range path {
-					if a1 == b1 {
-						same++
-					}
-				}
+		return bt, path
+	}
+	// pagina di rune più usata con un certo primo oggetto (ed eventualmente una keystone)
+	runesFor := func(lead, ks int) *RunePage {
+		var best *Stat
+		bestK := ""
+		for k, v := range a.LR {
+			parts := strings.SplitN(k, "|", 2)
+			if len(parts) != 2 || parts[0] != strconv.Itoa(lead) {
+				continue
 			}
-			if same >= 2 && ov.Path[0] == path[0] {
-				dup = true
+			pg := parseRuneKey(parts[1])
+			if pg == nil || (ks > 0 && pg.Perks[0] != ks) {
+				continue
+			}
+			if best == nil || v.N > best.N {
+				best, bestK = v, parts[1]
 			}
 		}
-		if dup {
-			continue
+		if best == nil {
+			return nil
 		}
-		v := BuildVariant{Path: path, Boots: bt, Games: x.s.N, WinRate: float64(x.s.W) / float64(x.s.N), Share: float64(x.s.N) / float64(tot)}
+		pg := parseRuneKey(bestK)
+		pg.Games, pg.WinRate, pg.Source = best.N, float64(best.W)/float64(best.N), "Statistiche BetterStomp"
+		return pg
+	}
+	usedLead := map[int]bool{}
+	addVariant := func(bt int, path []int, st *Stat, ks int) {
+		v := BuildVariant{Path: path, Boots: bt, Games: st.N, WinRate: float64(st.W) / float64(st.N), Share: float64(st.N) / math.Max(1, float64(tot))}
+		v.Runes = runesFor(path[0], ks)
+		if v.Runes == nil && ks == 0 {
+			v.Runes = r.Runes
+		}
+		if v.Runes != nil {
+			v.Keystone = v.Runes.Perks[0]
+		}
 		if it, ok := itemInfo(path[0]); ok {
 			v.Label = it.Name
 		}
@@ -1327,6 +1455,262 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 		}
 		r.Variants = append(r.Variants, v)
 	}
+	for _, x := range bk {
+		if len(r.Variants) >= 4 || x.s.N < minB {
+			break
+		}
+		bt, path := parseB(x.k)
+		if len(path) < 3 {
+			continue
+		}
+		// varianti davvero diverse: oggetto iniziale diverso o almeno due oggetti diversi
+		dup := false
+		for _, ov := range r.Variants {
+			same := 0
+			for _, a1 := range ov.Path {
+				for _, b1 := range path {
+					if a1 == b1 {
+						same++
+					}
+				}
+			}
+			if same >= 2 && ov.Path[0] == path[0] {
+				dup = true
+			}
+		}
+		if !dup {
+			addVariant(bt, path, x.s, 0)
+		}
+	}
+	// stili diversi (es. letalità con Primo colpo): una build per ogni keystone giocata spesso
+	ksN := map[int]int{}
+	ksLead := map[int]map[int]int{}
+	for k, v := range a.LR {
+		parts := strings.SplitN(k, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		pg := parseRuneKey(parts[1])
+		if pg == nil {
+			continue
+		}
+		lead, _ := strconv.Atoi(parts[0])
+		ks := pg.Perks[0]
+		ksN[ks] += v.N
+		if ksLead[ks] == nil {
+			ksLead[ks] = map[int]int{}
+		}
+		ksLead[ks][lead] += v.N
+	}
+	var kss []int
+	for ks, nn := range ksN {
+		if nn >= minB && float64(nn) >= float64(tot)*0.05 {
+			kss = append(kss, ks)
+		}
+	}
+	sort.Slice(kss, func(i, j int) bool { return ksN[kss[i]] > ksN[kss[j]] })
+	for _, ks := range kss {
+		if len(r.Variants) >= 6 {
+			break
+		}
+		covered := false
+		for _, v := range r.Variants {
+			if v.Keystone == ks {
+				covered = true
+			}
+		}
+		if covered {
+			continue
+		}
+		lead, ln := 0, 0
+		for l, nn := range ksLead[ks] {
+			if nn > ln {
+				lead, ln = l, nn
+			}
+		}
+		for _, x := range bk {
+			bt, path := parseB(x.k)
+			if len(path) >= 3 && path[0] == lead {
+				addVariant(bt, path, x.s, ks)
+				break
+			}
+		}
+	}
+	// poche build complete registrate (es. archivio vecchio): build per stile di oggetti
+	// (critico, letalità, on-hit, AP, tank...) abbinate alle pagine di rune più giocate
+	if len(r.Variants) < 3 && len(items) >= 3 {
+		style := func(id int) string {
+			it, ok := itemInfo(id)
+			if !ok {
+				return ""
+			}
+			switch {
+			case strings.Contains(it.Description, "Letalit") || strings.Contains(it.Description, "Lethality"):
+				return "Letalità"
+			case hasTag(it, "CriticalStrike"):
+				return "Critico"
+			case hasTag(it, "SpellDamage"):
+				return "AP"
+			case hasTag(it, "OnHit"):
+				return "On-hit"
+			case hasTag(it, "Damage") && hasTag(it, "Health"):
+				return "Bruiser"
+			case hasTag(it, "Health") && (hasTag(it, "Armor") || hasTag(it, "SpellBlock")):
+				return "Tank"
+			}
+			return ""
+		}
+		type sty struct {
+			name  string
+			n     int
+			items []int
+		}
+		byS := map[string]*sty{}
+		itemTot := 0
+		for _, id := range items {
+			itemTot += a.Items[id].N
+			s := style(id)
+			if s == "" {
+				continue
+			}
+			if byS[s] == nil {
+				byS[s] = &sty{name: s}
+			}
+			byS[s].n += a.Items[id].N
+			byS[s].items = append(byS[s].items, id)
+		}
+		var ss []*sty
+		for _, s := range byS {
+			if len(s.items) >= 2 && float64(s.n) >= float64(itemTot)*0.07 {
+				ss = append(ss, s)
+			}
+		}
+		sort.Slice(ss, func(i, j int) bool { return ss[i].n > ss[j].n })
+		usedKS := map[int]bool{}
+		for _, v := range r.Variants {
+			usedKS[v.Keystone] = true
+		}
+		var pages []*RunePage
+		for _, o := range topOpts(a.Runes, a.N, 6, min, false) {
+			if pg := parseRuneKey(o.Key); pg != nil {
+				pg.Games, pg.WinRate, pg.Source = o.Games, o.WinRate, "Statistiche BetterStomp"
+				pages = append(pages, pg)
+			}
+		}
+		bt := 0
+		if len(boots) > 0 {
+			bt = boots[0]
+		}
+		for _, s := range ss {
+			if len(r.Variants) >= 4 {
+				break
+			}
+			covered := false
+			for _, v := range r.Variants {
+				if len(v.Path) > 0 && style(v.Path[0]) == s.name {
+					covered = true
+				}
+			}
+			if covered {
+				continue
+			}
+			path := s.items
+			if len(path) > 3 {
+				path = path[:3]
+			}
+			if len(path) < 3 { // completa con gli oggetti più comprati
+				for _, id := range items {
+					if len(path) >= 3 {
+						break
+					}
+					dupI := false
+					for _, x := range path {
+						dupI = dupI || x == id
+					}
+					if !dupI {
+						path = append(path, id)
+					}
+				}
+			}
+			st := a.Items[path[0]]
+			ks := 0
+			for _, pg := range pages {
+				if !usedKS[pg.Perks[0]] {
+					ks = pg.Perks[0]
+					break
+				}
+			}
+			before := len(r.Variants)
+			addVariant(bt, append([]int(nil), path...), st, 0)
+			if len(r.Variants) > before {
+				nv := &r.Variants[len(r.Variants)-1]
+				if len(ss) > 1 {
+					nv.Label = s.name + " · " + nv.Label
+				}
+				if ks > 0 {
+					for _, pg := range pages {
+						if pg.Perks[0] == ks {
+							nv.Runes, nv.Keystone = pg, ks
+							break
+						}
+					}
+				}
+				usedKS[nv.Keystone] = true
+			}
+		}
+		// stesso stile: varianti con un primo oggetto diverso
+		for _, lead := range items {
+			if len(r.Variants) >= 3 {
+				break
+			}
+			if a.Items[lead].N < minB || float64(a.Items[lead].N) < float64(a.N)*0.12 {
+				break
+			}
+			used := false
+			for _, v := range r.Variants {
+				used = used || (len(v.Path) > 0 && v.Path[0] == lead)
+			}
+			if used {
+				continue
+			}
+			path := []int{lead}
+			if s := style(lead); s != "" && byS[s] != nil {
+				for _, id := range byS[s].items {
+					if len(path) < 3 && id != lead {
+						path = append(path, id)
+					}
+				}
+			}
+			for _, id := range items {
+				dupI := false
+				for _, x := range path {
+					dupI = dupI || x == id
+				}
+				if len(path) < 3 && !dupI {
+					path = append(path, id)
+				}
+			}
+			ks := 0
+			for _, pg := range pages {
+				if !usedKS[pg.Perks[0]] {
+					ks = pg.Perks[0]
+					break
+				}
+			}
+			before := len(r.Variants)
+			addVariant(bt, path, a.Items[lead], 0)
+			if len(r.Variants) > before && ks > 0 {
+				nv := &r.Variants[len(r.Variants)-1]
+				for _, pg := range pages {
+					if pg.Perks[0] == ks {
+						nv.Runes, nv.Keystone = pg, ks
+					}
+				}
+				usedKS[ks] = true
+			}
+		}
+	}
+	sort.SliceStable(r.Variants, func(i, j int) bool { return r.Variants[i].Games > r.Variants[j].Games })
 	if len(r.Variants) > 0 {
 		r.Core, r.Situational = r.Variants[0].Core, r.Variants[0].Situational
 	}

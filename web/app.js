@@ -129,8 +129,16 @@ function softRefresh(){
   render(true);
 }
 
+// barra della finestra disegnata dall'app (finestra senza bordi di Windows)
+document.addEventListener('mousedown', e=>{
+  if(e.button!==0 || !document.body.classList.contains('frameless')) return;
+  const b = e.target.closest('[data-win]'); if(b){ e.preventDefault(); fetch('/api/win?a='+b.dataset.win); return; }
+  if(e.target.closest('header.top') && !e.target.closest('a,button,input,select,.status,.gamechip') && e.detail===1) fetch('/api/win?a=drag');
+});
+document.addEventListener('dblclick', e=>{ if(document.body.classList.contains('frameless') && e.target.closest('header.top') && !e.target.closest('a,button,input,select')) fetch('/api/win?a=max'); });
 async function poll(){
   try{ S.st = await api('/api/state'); }catch(e){ return; }
+  document.body.classList.toggle('frameless', !!S.st.frameless);
   const c = S.st.client;
   $('#cdot').classList.toggle('on', c.connected);
   const ph = {None:'Client connesso',Lobby:'In lobby',Matchmaking:'In coda',ReadyCheck:'Partita trovata',ChampSelect:'Champion select',InProgress:'In partita',EndOfGame:'Fine partita',WaitingForStats:'Fine partita',PreEndOfGame:'Fine partita'};
@@ -339,7 +347,7 @@ function drawChampGrid(soft){
 async function pageChampion(m, r, soft){
   const c = S.champList.find(x=>x.id===r[1]); if(!c){ location.hash='#/campioni'; return; }
   const key = +c.key, u = S.ui;
-  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; u.abSel=0; u.runeAlt=false; u.runeTree=false; }
+  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; u.abSel=0; u.runeSel=null; u.runeTree=false; }
   u.chMode = u.chMode||u.cmode||S.settings.defaultMode||'ranked'; u.chTier = u.chTier||u.ctier||'auto';
   if(soft && !$('#chbody')) soft = false;
   if(!soft) m.innerHTML = `<div class="page"><div class="champhero"><div class="bg" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${c.id}_0.jpg')"></div>
@@ -395,30 +403,52 @@ function runesCompact(r){
       <div class="tiny dim"><img class="rc-ti" src="${stImg(r.primary)}">${esc(S.style[r.primary]?.name||'')} + <img class="rc-ti" src="${stImg(r.secondary)}">${esc(S.style[r.secondary]?.name||'')}</div></div></div>
     <div class="rc-rows"><div class="rc-row">${p.slice(1,4).map(x=>ri(x)).join('')}</div><div class="rc-row">${p.slice(4,6).map(x=>ri(x)).join('')}<span class="rc-gap"></span>${p.slice(6,9).map(x=>ri(x,'sh')).join('')}</div></div></div>`;
 }
+function optRow(icons, o, on, act, i){
+  return `<div class="orow ${on?'on':''}" ${act?`data-act="${act}" data-i="${i}"`:''}><div class="oic">${icons}</div><span class="sp"></span>
+    <div class="ost"><b>${pct(o.pick ?? o.share ?? 0,1)}</b><span class="tiny dim">pick</span></div>
+    <div class="ost"><b class="${o.winRate>=.5?'good':'bad'}">${pct(o.winRate,1)}</b><span class="tiny dim">${num(o.games)} p.</span></div></div>`;
+}
 function champBuildView(b0, variant){
   const vs = (!b0.personal && b0.variants) || [];
   const v = vs[variant];
   const b = v ? {...b0, core:v.core, situational:v.situational} : b0;
-  const wr = b0.itemWR || {};
+  const wr = b0.itemWR || {}, N = b0.buildGames || b0.games || 1;
+  const kimg = id => id ? `<img class="ks" src="${pImg(id)}" title="${esc(S.perk[id]?.name||'')}">` : '';
+  const iimg = (id, c='') => `<img class="${c}" src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`;
   const tabs = vs.length>1 ? `<div class="vtabs">${vs.map((x,i)=>`<button class="vtab ${i===variant?'on':''}" data-act="variant" data-i="${i}">
-      <div class="vtop"><span class="vn">${esc(x.label||('Build '+(i+1)))}</span><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)}</b></div>
-      <div class="vimgs">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>`<img src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`).join('')}</div>
-      <div class="tiny dim">${num(x.games)} partite · ${pct(x.share,0)} pick</div></button>`).join('')}</div>` : '';
-  const core = (b.core||[]).slice(0,6), extra = (b.core||[]).slice(6).concat(b.situational||[]).filter((id,i,a)=>id && a.indexOf(id)===i && !core.includes(id));
-  const r = b0.runes;
-  const sec = (t, info, body, cls='') => `<div class="cbsec ${cls}"><div class="cbh"><span>${t}</span>${info?`<span class="tiny dim">${info}</span>`:''}</div>${body}</div>`;
-  return `${tabs}
-  <div class="cbgrid">
-    ${sec('Rune', r?.games?`${pct(r.winRate)} WR · ${num(r.games)} partite`:esc(r?.source||''), runesCompact(r)+(r?`<div class="row gap6 mt8">${b0.runesAlt?`<button class="btn ghost xs" data-act="runealt">${S.ui.runeAlt?'Pagina principale':`Alternativa · ${pct(b0.runesAlt.winRate)}`}</button>`:''}<button class="btn ghost xs" data-act="runetree">${S.ui.runeTree?'Nascondi albero':'Albero completo'}</button><button class="btn ghost xs" data-act="saverunes">Salva come personali</button></div>`:'')
-      +(S.ui.runeTree||S.ui.runeAlt?`<div class="mt8">${runesHTML(S.ui.runeAlt&&b0.runesAlt?b0.runesAlt:r)}</div>`:''), 'span2')}
-    ${sec('Incantesimi', b0.spellsWR?pct(b0.spellsWR)+' WR':'', b0.spells?.length?`<div class="row gap8">${b0.spells.map(s=>`<img class="spl" src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join('')}</div>`:'<span class="small dim">—</span>')}
-    ${sec('Priorità abilità', b0.skillFirst?`primi livelli ${b0.skillFirst.split('').join(' ')}`:'', b0.skills?`<div class="skprio">${b0.skills.split('>').map((k,i)=>`${i?'<span class="arr">›</span>':''}<span class="skey big k${k}">${k}</span>`).join('')}</div>`:'<span class="small dim">—</span>')}
-  </div>
-  ${sec('Percorso oggetti', v?`${pct(v.winRate)} WR · ${num(v.games)} partite`:'', `<div class="ipath">
-      ${b.starting?.length?`<div class="istart"><div class="tiny dim">Inizio</div><div class="row gap6">${b.starting.map(id=>itCell(id,null,'sm')).join('')}</div></div><span class="parr">›</span>`:''}
-      ${core.length?core.map((id,i)=>`${i?'<span class="parr">›</span>':''}${itCell(id,wr[id],'big')}`).join(''):'<span class="small dim">Nessuna build statistica ancora: creane una personale con “Build personale”.</span>'}</div>`)}
-  ${extra.length?sec('Situazionali', 'win rate quando lo compri', `<div class="isit">${extra.map(id=>itCell(id,wr[id])).join('')}</div>`):''}
-  ${sec('Ordine abilità', b0.skillSeqN?`${pct(b0.skillSeqWR)} WR · ${num(b0.skillSeqN)} partite`:'', skillGridHTML(b0.skillSeq))}`;
+      <div class="vtop">${kimg(x.keystone)}<span class="vn">${esc(x.label||('Build '+(i+1)))}</span></div>
+      <div class="vimgs">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>iimg(id)).join('')}</div>
+      <div class="vfoot"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)} WR</b><span class="tiny dim">${num(x.games)} partite</span></div></button>`).join('')}</div>` : '';
+  const sec = (t, info, body) => `<div class="cbsec"><div class="cbh"><span>${t}</span>${info?`<span class="tiny dim">${info}</span>`:''}</div>${body}</div>`;
+  // rune: pagina della build scelta, oppure una delle più usate cliccata
+  const pages = b0.runePages || [];
+  const rsel = S.ui.runeSel;
+  const r = (rsel!=null && pages[rsel]) || v?.runes || b0.runes;
+  const core = (b.core||[]).filter(id=>!(S.items[id]?.tags||[]).includes('Boots')).slice(0,6);
+  const bootsId = (b.core||[]).find(id=>(S.items[id]?.tags||[]).includes('Boots'));
+  const after = (b.core||[]).slice(0).concat(b.situational||[]).filter((id,i,a)=>id && a.indexOf(id)===i && !core.includes(id) && id!==bootsId).slice(0,8);
+  const left = `
+    ${(b0.startSets||[]).length?sec('Oggetti iniziali','', `<div class="olist">${b0.startSets.map((o,i)=>optRow(o.ids.map(id=>iimg(id)).join(''), o, i===0)).join('')}</div>`):''}
+    ${sec('Percorso build', v?`${pct(v.winRate)} WR · ${num(v.games)} partite`:'', `<div class="ipath">
+        ${bootsId?`${itCell(bootsId,wr[bootsId],'big')}<span class="parr">·</span>`:''}
+        ${core.length?core.map((id,i)=>`${i?'<span class="parr">›</span>':''}${itCell(id,wr[id],'big')}`).join(''):'<span class="small dim">Nessuna build statistica ancora: creane una personale con “Build personale”.</span>'}</div>
+        ${after.length?`<div class="cbh mt12"><span>Poi, in base alla partita</span></div><div class="isit">${after.map(id=>itCell(id,wr[id])).join('')}</div>`:''}`)}
+    ${(b0.itemsList||[]).length?sec('Oggetti popolari', `su ${num(N)} partite`, `
+        ${(b0.bootsList||[]).length?`<div class="tiny dim mb6">Stivali</div><div class="pop">${b0.bootsList.map(o=>popCell(o)).join('')}</div>`:''}
+        <div class="tiny dim mb6 mt12">Leggendari</div><div class="pop">${b0.itemsList.map(o=>popCell(o)).join('')}</div>`):''}`;
+  const right = `
+    ${sec('Rune', r?.games?`${pct(r.winRate)} WR · ${num(r.games)} partite`:'', runesCompact(r)
+      +(r?`<div class="row gap6 mt8 wrap"><button class="btn ghost xs" data-act="runetree">${S.ui.runeTree?'Nascondi albero':'Albero completo'}</button><button class="btn ghost xs" data-act="saverunes">Salva come personali</button></div>`:'')
+      +(S.ui.runeTree&&r?`<div class="mt8">${runesHTML(r)}</div>`:'')
+      +(pages.length>1?`<div class="cbh mt12"><span>Pagine più usate</span></div><div class="olist">${pages.map((p,i)=>optRow(`${kimg(p.perks[0])}${p.perks.slice(1,4).map(x=>`<img class="rsm" src="${pImg(x)}">`).join('')}<img class="rsm st" src="${stImg(p.secondary)}">`, {pick:p.games/N, winRate:p.winRate, games:p.games}, (rsel!=null?rsel===i:false), 'runesel', i)).join('')}</div>`:''))}
+    ${(b0.spellSets||[]).length?sec('Incantesimi','', `<div class="olist">${b0.spellSets.map((o,i)=>optRow(o.ids.map(s=>`<img src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join(''), o, i===0)).join('')}</div>`):''}
+    ${sec('Abilità', b0.skillFirst?`primi livelli ${b0.skillFirst.split('').join(' ')}`:'', `${(b0.skillOrders||[]).length?`<div class="olist">${b0.skillOrders.map((o,i)=>optRow(`<div class="skprio">${o.key.split('>').map((k,j)=>`${j?'<span class="arr">›</span>':''}<span class="skey k${k}">${k}</span>`).join('')}</div>`, o, i===0)).join('')}</div>`:''}
+      <div class="mt12">${skillGridHTML(b0.skillSeq)}</div>`)}`;
+  return `${tabs}<div class="otgrid"><div class="col">${left}</div><div class="col">${right}</div></div>`;
+}
+function popCell(o){
+  const id = o.ids[0];
+  return `<div class="popc" title="${esc(S.items[id]?.name||'')}"><img src="${iImg(id)}"><b>${pct(o.pick,0)}</b><span class="${o.winRate>=.5?'good':'bad'}">${pct(o.winRate,0)}</span></div>`;
 }
 function matchList(t, list, cls){
   if(!list?.length) return '';
@@ -896,7 +926,8 @@ function pageSettings(m){
     <div class="col gap16">
       <div class="card"><h2>Aspetto</h2>
         <div class="setting"><div class="lbl"><b>Tema</b></div><div class="seg"><button data-act="theme" data-k="dark" class="${s.theme!=='light'?'on':''}">Scuro</button><button data-act="theme" data-k="light" class="${s.theme==='light'?'on':''}">Chiaro</button></div></div>
-        <div class="setting"><div class="lbl"><b>Animazioni</b></div>${sw('animations',s.animations!==false)}</div></div>
+        <div class="setting"><div class="lbl"><b>Animazioni</b></div>${sw('animations',s.animations!==false)}</div>
+        <div class="setting"><div class="lbl"><b>Barra di Windows</b><span class="small muted">Usa la cornice classica al posto di quella dell'app</span></div>${sw('nativeFrame',!!s.nativeFrame)}</div></div>
       <div class="card"><h2>Automatismi in champion select</h2>
         <div class="setting"><div class="lbl"><b>Importa rune</b><small>Crea una pagina "BetterStomp" quando blocchi il campione</small></div>${sw('autoRunes',s.autoRunes)}</div>
         <div class="setting"><div class="lbl"><b>Importa incantesimi dell'evocatore</b></div>${sw('autoSpells',s.autoSpells)}</div>
@@ -1011,10 +1042,10 @@ const actions = {
   sidemore(t){ S.ui.sideMore=S.ui.sideMore||{}; S.ui.sideMore[t.dataset.k]=!S.ui.sideMore[t.dataset.k]; $('#side')._h=''; renderSide(); },
   addpro(){ const l=[...(S.settings.proPlayers||[]),{label:'',riotId:'',region:S.settings.region}]; setSetting('proPlayers',l); drawProList(); },
   delpro(t){ const l=[...(S.settings.proPlayers||[])]; l.splice(+t.dataset.i,1); setSetting('proPlayers',l); drawProList(); },
-  runealt(){ S.ui.runeAlt=!S.ui.runeAlt; refreshEditor(); },
+  runesel(t){ const i=+t.dataset.i; S.ui.runeSel = S.ui.runeSel===i?null:i; refreshEditor(); },
   runetree(){ S.ui.runeTree=!S.ui.runeTree; refreshEditor(); },
   abtab(t){ S.ui.abSel=+t.dataset.i; const d=S.ui.chDetail?.d; if(d) t.closest('.card').innerHTML='<h2>Abilità</h2>'+abilitiesHTML(d.data[S.ui.chDetail.id]); },
-  variant(t){ S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
+  variant(t){ S.ui.runeSel=null; S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
   editbuild(){ S.ui.editing=!S.ui.editing; S.ui.edit=null; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.hasPersonal?S.ui.chData.personal:null, S.ui.variant, 'variant');
     document.querySelector('[data-act=editbuild]').textContent = S.ui.editing?'Chiudi editor':'✎ Build personale'; },
   pickitem(t,e){ if(e.target.closest('.x')) return; itemPicker(id=>{ const b=t.dataset.b, i=+t.dataset.i; const arr=S.ui.edit[b]; arr[i]=id; S.ui.edit[b]=arr.map(x=>x||0); refreshEditor(); }); },
@@ -1023,7 +1054,7 @@ const actions = {
     await api('/api/personal?id='+S.ui.chKey, {...cur, starting:e.starting.filter(Boolean), core:e.core.filter(Boolean), situational:e.situational.filter(Boolean)});
     toast('Build personale salvata'); S.ui.editing=false; render(); },
   async resetbuild(){ await api('/api/personal?id='+S.ui.chKey, {starting:[],core:[],situational:[]}); toast('Build personale eliminata'); S.ui.editing=false; render(); },
-  async saverunes(){ const d=S.ui.chData; const cur=d.hasPersonal?d.personal:{}; await api('/api/personal?id='+S.ui.chKey, {...cur, runes:d.build.runes, spells:d.build.spells}); toast('Rune e incantesimi salvati come personali'); },
+  async saverunes(){ const d=S.ui.chData; const cur=d.hasPersonal?d.personal:{}; const pg=d.build.runePages||[]; const rr=(S.ui.runeSel!=null&&pg[S.ui.runeSel])||d.build.variants?.[S.ui.variant]?.runes||d.build.runes; await api('/api/personal?id='+S.ui.chKey, {...cur, runes:rr, spells:d.build.spells}); toast('Rune e incantesimi salvati come personali'); },
   skind(t){ S.ui.skind=t.dataset.k; document.querySelectorAll('[data-act=skind]').forEach(b=>b.classList.toggle('on',b===t)); S.ui.ssig=''; updateSelect(true); },
   override(t){ champPicker(k=>{ S.ui.over[t.dataset.k]=k; S.ui.ssig=''; S.ui.sbuildKey=''; updateSelect(true); }); },
   pickopp(){ champPicker(k=>{ S.ui.sopp=k; S.ui.soppManual=true; S.ui.ssig=''; updateSelect(true); }); },

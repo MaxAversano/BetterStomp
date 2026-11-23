@@ -95,20 +95,21 @@ function riot($url) {
 // ---------- dati statici (Data Dragon) ----------
 function static_data() {
     $meta = load_json('ddragon.json', []);
-    if (empty($meta['version']) || time() - ($meta['at'] ?? 0) > 3 * 3600) {
+    if (empty($meta['version']) || time() - ($meta['at'] ?? 0) > 3 * 3600 || ($meta['cv'] ?? 0) < 2) {
         $v = json_decode((string)http_get('https://ddragon.leagueoflegends.com/api/versions.json'), true);
         if (is_array($v) && $v) {
-            if (($meta['version'] ?? '') !== $v[0] || empty($meta['items'])) {
+            if (($meta['version'] ?? '') !== $v[0] || empty($meta['items']) || ($meta['cv'] ?? 0) < 2) {
                 $items = json_decode((string)http_get("https://ddragon.leagueoflegends.com/cdn/{$v[0]}/data/en_US/item.json"), true);
                 $cls = [];
                 foreach (($items['data'] ?? []) as $id => $it) {
                     $tags = $it['tags'] ?? [];
                     $gold = $it['gold']['total'] ?? 0;
                     $into = !empty($it['into']);
-                    if (in_array('Boots', $tags) && $gold > 300 && !$into) $cls[$id] = 'b';
+                    if (in_array('Boots', $tags) && $gold > 300) $cls[$id] = 'b';
                     elseif (!in_array('Consumable', $tags) && !in_array('Trinket', $tags) && !in_array('Boots', $tags) && !$into && $gold >= 900) $cls[$id] = 'c';
                 }
                 $meta['items'] = $cls;
+                $meta['cv'] = 2;
             }
             $meta['version'] = $v[0];
             $meta['at'] = time();
@@ -141,7 +142,7 @@ function add_stat(&$map, $k, $win) {
 }
 
 function new_agg() {
-    return ['n'=>0,'w'=>0,'items'=>[],'boots'=>[],'start'=>[],'runes'=>[],'spells'=>[],'skills'=>[],'seq'=>[],'builds'=>[],'lane'=>[],'vs'=>[],'with'=>[],'k'=>0,'d'=>0,'a'=>0,'cs'=>0,'g'=>0,'kpm'=>0,'dur'=>0];
+    return ['n'=>0,'w'=>0,'items'=>[],'boots'=>[],'start'=>[],'runes'=>[],'spells'=>[],'skills'=>[],'seq'=>[],'builds'=>[],'lr'=>[],'lane'=>[],'vs'=>[],'with'=>[],'k'=>0,'d'=>0,'a'=>0,'cs'=>0,'g'=>0,'kpm'=>0,'dur'=>0];
 }
 
 function rune_key($p) {
@@ -218,7 +219,10 @@ function ingest(&$db, $m, $mode, $tier, $tl, $items, $region) {
         $path = $final;
         if (!empty($order[$i + 1]) && count($order[$i + 1]) >= 3) $path = array_values(array_unique($order[$i + 1]));
         if (count($path) >= 3) add_stat($a['builds'], $boots . ':' . $path[0] . ',' . $path[1] . ',' . $path[2], $win);
-        if (($rk = rune_key($p)) !== '') add_stat($a['runes'], $rk, $win);
+        if (($rk = rune_key($p)) !== '') {
+            add_stat($a['runes'], $rk, $win);
+            if (count($path) > 0) { if (!isset($a['lr'])) $a['lr'] = []; add_stat($a['lr'], $path[0] . '|' . $rk, $win); }
+        }
         $s1 = $p['summoner1Id']; $s2 = $p['summoner2Id'];
         if ($s1 > $s2) { $tmp = $s1; $s1 = $s2; $s2 = $tmp; }
         add_stat($a['spells'], $s1 . ',' . $s2, $win);
@@ -264,7 +268,7 @@ function to_go($db) {
     foreach ($db['buckets'] as $k => $b) {
         $champs = [];
         foreach ($b['champs'] as $ck => $a) {
-            foreach (['items','boots','start','runes','spells','skills','seq','builds','lane','vs','with'] as $f) $a[$f] = $obj($a[$f]);
+            foreach (['items','boots','start','runes','spells','skills','seq','builds','lr','lane','vs','with'] as $f) $a[$f] = $obj($a[$f] ?? []);
             $champs[$ck] = $a;
         }
         $out['buckets'][$k] = ['matches' => $b['matches'], 'bans' => $obj($b['bans']), 'champs' => $obj($champs)];

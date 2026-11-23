@@ -78,6 +78,7 @@ func main() {
 	go startOCR()
 
 	start := time.Now()
+	go framelessLoop()
 	go openAppWindow(appURL)
 
 	// resta aperto finché la finestra è aperta, oppure finché c'è una partita in corso

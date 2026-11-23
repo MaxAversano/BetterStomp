@@ -32,6 +32,7 @@ type DDItem struct {
 	Depth            int                `json:"depth"`
 	InStore          *bool              `json:"inStore"`
 	RequiredChampion string             `json:"requiredChampion"`
+	Description      string             `json:"description"`
 }
 
 type DDChamp struct {
@@ -190,7 +191,7 @@ func hasTag(it DDItem, t string) bool {
 // classificazione oggetti per le build
 func isBoots(id int) bool {
 	it, ok := itemInfo(id)
-	return ok && hasTag(it, "Boots") && it.Gold.Total > 300 && len(it.Into) == 0
+	return ok && hasTag(it, "Boots") && it.Gold.Total > 300 // anche gli stivali di 2° livello, che ora si potenziano
 }
 func isCompleted(id int) bool {
 	it, ok := itemInfo(id)

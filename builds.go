@@ -84,6 +84,9 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 		b.Variant = variant
 		b.Core, b.Situational = b.Variants[variant].Core, b.Variants[variant].Situational
 	}
+	if variant >= 0 && variant < len(b.Variants) && b.Variants[variant].Runes != nil {
+		b.Runes = b.Variants[variant].Runes // ogni build ha la sua pagina di rune
+	}
 	if pb, ok := getPersonal(champ); ok && usePersonal {
 		pref := getSettings().PreferPersonal
 		if pref || len(b.Core) == 0 {
