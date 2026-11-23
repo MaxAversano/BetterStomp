@@ -33,6 +33,7 @@ type Widget struct {
 	X      float64 `json:"x"` // 0..1 frazione dello schermo
 	Y      float64 `json:"y"`
 	Locked bool    `json:"locked"` // lucchetto: non si sposta tenendo TAB
+	Size   float64 `json:"size"`   // dimensione del riquadro (1 = normale), regolabile in partita
 }
 
 type OverlaySettings struct {

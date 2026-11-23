@@ -175,7 +175,7 @@ function recentStrip(p){
   if(!ms.length) return '';
   const mode = ms[0].queue, list = ms.filter(m=>m.queue===mode).slice(0,10);
   const w = list.filter(m=>m.me.win).length, l = list.length-w;
-  return `<div class="card side-card"><h3>${esc(qName(mode))} <span class="dim small">(ultime ${list.length})</span></h3>
+  return `<div class="card side-card"><h3>${esc(qName(mode, ms[0].mode))} <span class="dim small">(ultime ${list.length})</span></h3>
     <div class="row small" style="margin-top:6px"><b class="${w/list.length>=.5?'good':'bad'}">${pct(w/list.length)} WR</b><span class="muted">${w}V - ${l}S</span></div>
     <div class="bar" style="margin:6px 0 10px"><i style="width:${w/list.length*100}%"></i></div>
     <div class="recent">${list.map(m=>`<span class="rc"><img src="${cImg(m.me.champ)}" title="${esc(champ(m.me.champ).name)} · ${m.me.k}/${m.me.d}/${m.me.a}"><i class="${m.me.win?'w':'l'}"></i></span>`).join('')}</div></div>`;
@@ -311,7 +311,7 @@ function profileTab(p){
     const mins = Math.max(1,g.duration/60);
     const res = g.remake?'Remake':(me.place? me.place+'° posto' : me.win?'Vittoria':'Sconfitta');
     return `<div class="match ${cls}"><div class="stripe"></div>${ci(me.champ,'l')}
-      <div><div class="res">${res}</div><div class="small muted">${esc(qName(g.queue))} · ${dur(g.duration)} · ${ago(g.start)}</div>
+      <div><div class="res">${res}</div><div class="small muted">${esc(qName(g.queue,g.mode))} · ${dur(g.duration)} · ${ago(g.start)}</div>
         <div class="row gap6 mt" style="margin-top:6px">${me.spells.map(s=>s?`<img class="ic xs" src="${sImg(s)}">`:'').join('')}</div></div>
       <div><div class="b" style="font-size:16px">${me.k} / <span class="bad">${me.d}</span> / ${me.a}</div><div class="small muted">${((me.k+me.a)/Math.max(1,me.d)).toFixed(2).replace('.',',')} KDA · ${me.cs} CS (${(me.cs/mins).toFixed(1).replace('.',',')})</div></div>
       <div class="items">${me.items.map(x=>x?`<img src="${iImg(x)}" title="${esc(S.items[x]?.name||'')}">`:'<span class="eslot"></span>').join('')}</div>
@@ -320,7 +320,12 @@ function profileTab(p){
   }).join('') + (list.length>shown?`<div class="row mt" style="justify-content:center"><button class="btn ghost" data-act="mmore">Mostra altre ${Math.min(20,list.length-shown)} partite</button></div>`:'');
 }
 function analysisHTML(g){ return (g.analysis||[]).map(a=>`<div class="ins ${a.kind}"><span class="i">${a.kind==='good'?'✓':a.kind==='bad'?'!':'i'}</span><span>${esc(a.text)}</span></div>`).join(''); }
-function qName(q){ return {420:'Solo/Duo',440:'Flex',400:'Normale',430:'Blind',490:'Rapida',450:'ARAM',2400:'ARAM Mayhem',1700:'Arena',1710:'Arena',900:'URF',1900:'URF',0:'Personalizzata'}[q] || 'Altra modalità'; }
+function qName(q, mode){
+  const Q = {420:'Solo/Duo',440:'Flex',400:'Normale',430:'Normale',490:'Partita rapida',480:'Partita rapida',450:'ARAM',2400:'ARAM: Caos',100:'ARAM',1700:'Arena',1710:'Arena',1750:'Arena',1810:'Arena',900:'URF',1900:'URF',1010:'URF',1020:'Uno per tutti',1300:'Nexus Blitz',700:'Clash',720:'Clash ARAM',830:'Contro IA',840:'Contro IA',850:'Contro IA',870:'Contro IA',880:'Contro IA',890:'Contro IA',2000:'Tutorial',2010:'Tutorial',2020:'Tutorial',3100:'Personalizzata',0:'Personalizzata'};
+  if(Q[q]) return Q[q];
+  const M = {CLASSIC:'Normale',ARAM:'ARAM',CHERRY:'Arena',URF:'URF',ARURF:'URF',ONEFORALL:'Uno per tutti',NEXUSBLITZ:'Nexus Blitz',ULTBOOK:'Libro delle Ulti',TUTORIAL:'Tutorial',PRACTICETOOL:'Allenamento',KIWI:'ARAM: Caos',SWIFTPLAY:'Partita rapida',STRAWBERRY:'Swarm',BRAWL:'Brawl'};
+  return M[String(mode||'').toUpperCase()] || (mode ? mode.charAt(0)+mode.slice(1).toLowerCase() : 'Altra modalità');
+}
 
 /* ================= CAMPIONI ================= */
 async function pageChampions(m, r, soft){

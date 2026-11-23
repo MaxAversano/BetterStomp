@@ -342,6 +342,13 @@ func paintOverlay(hdc uintptr) {
 		}
 		x := int32(w.X * float64(ovW))
 		y := int32(w.Y * float64(ovH))
+		// dimensione del singolo riquadro (regolabile in partita con la rotella)
+		k := k
+		if wp := widgetPtr(&s, w.Key); wp != nil && wp.Size > 0 {
+			k *= wp.Size
+		}
+		sc := func(v float64) int32 { return int32(v*k + 0.5) }
+		fs := func(v float64, bold bool) uintptr { return font(int(v*k+0.5), bold) }
 		pad := sc(8)
 		if w.Card != nil || w.Teams != nil {
 			var r rect
@@ -377,6 +384,13 @@ func paintOverlay(hdc uintptr) {
 			for i, sg := range w.Segs {
 				drawText(mem, sg.Text, rect{cx, y, cx + widths[i] + 2, y + h}, rgb(sg.Color), fonts[i], dtLeft)
 				cx += widths[i] + gap
+			}
+			if interactive && w.Key != "" { // rotella anche sulla versione riassunta, per tornare indietro
+				is := sc(16)
+				gr := rect{x + total + sc(4), y + (h-is)/2, x + total + sc(4) + is, y + (h-is)/2 + is}
+				roundRect(mem, rect{gr.l - 2, gr.t - 2, gr.r + 2, gr.b + 2}, sc(5), panel, border)
+				drawText(mem, "⚙", gr, label, symFont(int(10*k+0.5)), dtCenter)
+				icons = append(icons, iconHit{w.Key, "gear", rect{gr.l - 3, gr.t - 3, gr.r + 3, gr.b + 3}})
 			}
 			hits = append(hits, hitRect{w.Key, rect{x, y, x + total, y + h}, w.Anchor == "center"})
 			continue
@@ -901,6 +915,18 @@ func panelOption(opt string) {
 		o.Classic = !o.Classic
 	case "kp":
 		o.ShowKP = !o.ShowKP
+	case "size-", "size+":
+		if w := widgetPtr(o, ovPanel); w != nil {
+			if w.Size <= 0 {
+				w.Size = 1
+			}
+			if opt == "size-" {
+				w.Size = math.Max(0.6, w.Size-0.1)
+			} else {
+				w.Size = math.Min(1.8, w.Size+0.1)
+			}
+			w.Size = math.Round(w.Size*10) / 10
+		}
 	case "hide":
 		if w := widgetPtr(o, ovPanel); w != nil {
 			w.On = false
@@ -940,6 +966,11 @@ func drawPanel(hdc uintptr, wr rect, o OverlaySettings, k float64) []iconHit {
 			{"Partecipazione uccisioni", [][2]string{{onOff(o.ShowKP), "opt:kp"}}, ""},
 		}
 	}
+	sz := 1.0
+	if wp := widgetPtr(&o, ovPanel); wp != nil && wp.Size > 0 {
+		sz = wp.Size
+	}
+	rows = append([]row{{"Dimensione", [][2]string{{"−", "opt:size-"}, {"+", "opt:size+"}}, strconv.Itoa(int(sz*100+0.5)) + "%"}}, rows...)
 	rows = append(rows, row{"Nascondi questo riquadro", [][2]string{{"✕", "opt:hide"}}, ""}, row{"Tutte le impostazioni", [][2]string{{"Apri app", "app"}}, ""})
 	w := sc(290)
 	rowH := sc(30)

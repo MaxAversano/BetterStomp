@@ -337,7 +337,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 
 	t := o.Timers
 	// obiettivi epici dagli eventi di gioco
-	dragonNext, baronNext, heraldDone, grubsDone, atakhanDone := t.DragonFirst, t.BaronFirst, false, false, false
+	dragonNext, baronNext, heraldDone, grubsDone := t.DragonFirst, t.BaronFirst, false, false
 	drakes := map[string]int{}
 	elderPhase := false
 	var baronBuffEnd, elderBuffEnd float64
@@ -372,8 +372,6 @@ func buildOverlayModel(preview bool) OverlayModel {
 			if grubs >= 3 {
 				grubsDone = true
 			}
-		case strings.Contains(ev.EventName, "Atakhan"):
-			atakhanDone = true
 		}
 	}
 	timerLine := func(name string, at float64, col string) OLine {
@@ -399,9 +397,6 @@ func buildOverlayModel(preview bool) OverlayModel {
 		}
 		if !heraldDone && gt < t.HeraldFirst+300 {
 			lines = append(lines, timerLine("Araldo", t.HeraldFirst, colAccent))
-		}
-		if !atakhanDone && t.AtakhanFirst > 0 && gt < t.AtakhanFirst+300 && gt > t.HeraldFirst-120 {
-			lines = append(lines, timerLine("Atakhan", t.AtakhanFirst, colBad))
 		}
 		lines = append(lines, timerLine("Barone", baronNext, colAccent))
 		objLines = lines
@@ -436,9 +431,6 @@ func buildOverlayModel(preview bool) OverlayModel {
 		}
 		if !grubsDone {
 			objs = append(objs, objT{"Larve del Vuoto", t.GrubsFirst})
-		}
-		if !atakhanDone && t.AtakhanFirst > 0 {
-			objs = append(objs, objT{"Atakhan", t.AtakhanFirst})
 		}
 		dur := o.NotifyDur
 		if dur <= 0 {
