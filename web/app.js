@@ -472,7 +472,7 @@ async function pageChampion(m, r, soft){
   put($('#chstats'), b.games ? `${b.tierLabel?`<div class="htile tierT"><div class="k">Tier</div><div class="v">${tierBadge(b.tierLabel)}</div></div>`:''}${tile('Win rate',pct(b.winRate),b.winRate>=.5?'good':'bad')}${tile('Pick rate',pct(b.pickRate))}${tile('Ban rate',pct(b.banRate))}${tile('Partite',num(b.games))}${b.kda&&b.kda[1]?tile('KDA',`${b.kda[0].toFixed(1)} / ${b.kda[1].toFixed(1)} / ${b.kda[2].toFixed(1)}`):''}`
     : `<span class="badge">Nessuna statistica ancora per questo filtro</span>`, soft);
   put($('#chpos'), isPos(u.chMode) ? (b.positions||[]).filter(p=>p.position!=='ALL'&&p.share>=0.04).map(p=>`<span class="chip ${b.position===p.position?'on':''}" data-act="chpos" data-p="${p.position}">${POS[p.position]} <span class="tiny">${pct(p.share,0)}</span></span>`).join('') : '', soft);
-  put($('#chsrc'), b.source==='OP.GG' ? `Dati OP.GG · patch ${esc(b.patch)}` : b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
+  put($('#chsrc'), b.source?.startsWith('OP.GG') ? `Dati OP.GG${b.source==='OP.GG+'?' + partite rilevate (alternative)':''} · patch ${esc(b.patch)}` : b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
   const prof = (S.profile?.season||[]).find(x=>x.champion===key) || S.profile?.champs?.find(x=>x.champion===key);
   put($('#chbody'), `<div class="card cbcard"><div class="ctitle"><h2>Build ${b.personal?'<span class="badge goldc">Personale</span>':''}</h2><span class="sp"></span>
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'✎ Build personale'}</button></div>
@@ -540,7 +540,7 @@ function champBuildView(b0, variant){
     ${runeBoard(r)}
     ${ksPages.length>1?`<div class="rsets">${ksPages.map((p,i)=>`<button class="rset ${i===setSel?'on':''}" data-act="runeset" data-i="${i}"><span>Set ${i+1}:</span><img src="${pImg(p.perks[0])}"><img class="st" src="${stImg(p.secondary)}"><i style="width:${Math.round(p.games/totKs*100)}%"></i></button>`).join('')}</div>`:''}</div>`;
   // ---- oggetti
-  const tabs = vs.length>1 ? `<div class="isets">${vs.map((x,i)=>`<button class="iset ${i===variant?'on':''}" data-act="variant" data-i="${i}"><span class="tiny dim">Build ${i+1}</span><div class="row gap4">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>iimg(id)).join('')}</div><span class="tiny"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)}</b> <span class="dim">· ${num(x.games)}</span></span></button>`).join('')}</div>` : '';
+  const tabs = vs.length>1 ? `<div class="isets">${vs.map((x,i)=>`<button class="iset ${i===variant?'on':''}" data-act="variant" data-i="${i}"><span class="tiny dim">${esc(x.label||'Build '+(i+1))}</span><div class="row gap4">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>iimg(id)).join('')}</div><span class="tiny"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)}</b> <span class="dim">· ${num(x.games)}</span></span></button>`).join('')}</div>` : '';
   const core = (b.core||[]).filter(id=>!(S.items[id]?.tags||[]).includes('Boots')).slice(0,6);
   const after = (b.core||[]).concat(b.situational||[]).filter((id,i,a)=>id && a.indexOf(id)===i && !core.includes(id) && !(S.items[id]?.tags||[]).includes('Boots')).slice(0,8);
   const optRows = (list, icons) => `<div class="olist">${list.map((o,i)=>optRow(icons(o), o, i===0)).join('')}</div>`;

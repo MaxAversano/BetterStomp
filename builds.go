@@ -83,6 +83,8 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 	}
 	if err != nil {
 		b = engine.ChampionStats(champ, mode, tier, pos)
+	} else {
+		b = mergeDetected(b, engine.ChampionStats(champ, mode, tier, b.Position))
 	}
 	if b.Position == "" {
 		b.Position = pos
@@ -130,4 +132,106 @@ func autoTier() string {
 		return rq.Tier
 	}
 	return "EMERALD+"
+}
+
+// OP.GG come base, le partite rilevate dal nostro server aggiungono le alternative
+// (altre build, pagine di rune, stivali, oggetti, incantesimi) e i dettagli che OP.GG non dà
+func mergeDetected(o, e BuildResult) BuildResult {
+	r := o
+	sameInts := func(a, b []int, n int) bool {
+		if len(a) < n || len(b) < n {
+			n = min(len(a), len(b))
+			if len(a) != len(b) {
+				return false
+			}
+		}
+		for i := 0; i < n; i++ {
+			if a[i] != b[i] {
+				return false
+			}
+		}
+		return true
+	}
+	r.Variants = append([]BuildVariant{}, o.Variants...)
+	for _, v := range e.Variants {
+		dup := false
+		for _, x := range r.Variants {
+			if sameInts(x.Path, v.Path, 3) {
+				dup = true
+			}
+		}
+		if !dup && len(r.Variants) < 6 {
+			if v.Label == "" {
+				v.Label = "Rilevata"
+			}
+			r.Variants = append(r.Variants, v)
+		}
+	}
+	r.RunePages = append([]*RunePage{}, o.RunePages...)
+	for _, p := range e.RunePages {
+		dup := false
+		for _, x := range r.RunePages {
+			if sameInts(x.Perks, p.Perks, 9) {
+				dup = true
+			}
+		}
+		if !dup {
+			r.RunePages = append(r.RunePages, p)
+		}
+	}
+	mergeOpts := func(a, b []Opt, max int) []Opt {
+		out := append([]Opt{}, a...)
+		for _, x := range b {
+			dup := false
+			for _, y := range out {
+				if (len(x.IDs) > 0 && sameInts(x.IDs, y.IDs, len(x.IDs))) || (len(x.IDs) == 0 && x.Key == y.Key) {
+					dup = true
+				}
+			}
+			if !dup && len(out) < max {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	r.RuneKeystones = mergeOpts(o.RuneKeystones, e.RuneKeystones, 6)
+	r.StartSets = mergeOpts(o.StartSets, e.StartSets, 4)
+	r.SpellSets = mergeOpts(o.SpellSets, e.SpellSets, 4)
+	r.BootsList = mergeOpts(o.BootsList, e.BootsList, 5)
+	r.ItemsList = mergeOpts(o.ItemsList, e.ItemsList, 16)
+	r.SkillOrders = mergeOpts(o.SkillOrders, e.SkillOrders, 3)
+	r.ItemWR = map[int]float64{}
+	for k, v := range e.ItemWR {
+		r.ItemWR[k] = v
+	}
+	for k, v := range o.ItemWR {
+		r.ItemWR[k] = v
+	}
+	mergePairs := func(a, b []Pair) []Pair {
+		out := append([]Pair{}, a...)
+		for _, x := range b {
+			dup := false
+			for _, y := range out {
+				if y.Champion == x.Champion {
+					dup = true
+				}
+			}
+			if !dup && x.Games >= 20 && len(out) < 8 {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	r.Best, r.Worst = mergePairs(o.Best, e.Best), mergePairs(o.Worst, e.Worst)
+	if len(r.Synergy) == 0 {
+		r.Synergy = e.Synergy
+	}
+	r.ProGames, r.KDA, r.CSMin = e.ProGames, e.KDA, e.CSMin
+	if r.SkillSeq == "" {
+		r.SkillSeq, r.SkillSeqN, r.SkillSeqWR = e.SkillSeq, e.SkillSeqN, e.SkillSeqWR
+	}
+	if len(e.Variants) > 0 || len(e.RunePages) > 0 {
+		r.Source = "OP.GG+"
+	}
+	return r
 }
