@@ -493,6 +493,23 @@ func paintOverlay(hdc uintptr) {
 		icons = append(icons, iconHit{"minimap", "resize", rect{r.l - hd, r.t - hd, r.l + hd, r.t + hd}})
 	}
 
+	// maniglia in basso a destra di ogni riquadro: trascinala per ingrandire o rimpicciolire
+	if interactive {
+		for _, hr := range hits {
+			if hr.key == "" || hr.key == "minimap" || widgetLocked(hr.key) {
+				continue
+			}
+			hs := sc(12)
+			r := rect{hr.r.r - hs + 2, hr.r.b - hs + 2, hr.r.r + 2, hr.r.b + 2}
+			col := rgb("#38D6FF")
+			for i := int32(0); i < 3; i++ { // tre lineette diagonali
+				d := hs * (i + 1) / 4
+				fillRect(mem, rect{r.r - d - 1, r.b - 3, r.r - 1, r.b - 1}, col)
+				fillRect(mem, rect{r.r - 3, r.b - d - 1, r.r - 1, r.b - 1}, col)
+			}
+			icons = append(icons, iconHit{hr.key, "wresize", rect{r.l - 4, r.t - 4, r.r + 4, r.b + 4}})
+		}
+	}
 	if interactive && ovPanel != "" {
 		for _, hr := range hits {
 			if hr.key == ovPanel {
@@ -737,6 +754,22 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 						pSetCapture.Call(hwnd)
 						return 0
 					}
+					if ic.action == "wresize" {
+						for _, h := range ovHits {
+							if h.key == ic.key {
+								sizeStartW = h.r.r - h.r.l
+							}
+						}
+						sizeKey, sizeStartX = ic.key, mx
+						sizeStart = 1
+						st := getSettings()
+						if w := widgetPtr(&st.Overlay, ic.key); w != nil && w.Size > 0 {
+							sizeStart = w.Size
+						}
+						dragKey = "wsize"
+						pSetCapture.Call(hwnd)
+						return 0
+					}
 					widgetAction(ic.key, ic.action)
 					overlayTick()
 					return 0
@@ -772,6 +805,21 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			settingsMu.Unlock()
 			ovModel = buildOverlayModel(true)
 			pInvalidateRect.Call(hwnd, 0, 0)
+			return 0
+		}
+		if dragKey == "wsize" {
+			mx, _ := lparamXY(lparam)
+			if sizeStartW > 0 {
+				ns := sizeStart * float64(sizeStartW+mx-sizeStartX) / float64(sizeStartW)
+				ns = math.Round(math.Min(2.2, math.Max(0.5, ns))*100) / 100
+				settingsMu.Lock()
+				if w := widgetPtr(&settings.Overlay, sizeKey); w != nil {
+					w.Size = ns
+				}
+				settingsMu.Unlock()
+				ovModel = buildOverlayModel(true)
+				pInvalidateRect.Call(hwnd, 0, 0)
+			}
 			return 0
 		}
 		if dragKey != "" {
@@ -877,6 +925,14 @@ func startOverlay() {
 
 var ovPanel string
 
+// ridimensionamento di un riquadro trascinando la maniglia
+var (
+	sizeKey    string
+	sizeStart  float64
+	sizeStartX int32
+	sizeStartW int32
+)
+
 func panelOption(opt string) {
 	s := getSettings()
 	o := &s.Overlay
@@ -970,7 +1026,7 @@ func drawPanel(hdc uintptr, wr rect, o OverlaySettings, k float64) []iconHit {
 	if wp := widgetPtr(&o, ovPanel); wp != nil && wp.Size > 0 {
 		sz = wp.Size
 	}
-	rows = append([]row{{"Dimensione", [][2]string{{"−", "opt:size-"}, {"+", "opt:size+"}}, strconv.Itoa(int(sz*100+0.5)) + "%"}}, rows...)
+	_ = sz
 	rows = append(rows, row{"Nascondi questo riquadro", [][2]string{{"✕", "opt:hide"}}, ""}, row{"Tutte le impostazioni", [][2]string{{"Apri app", "app"}}, ""})
 	w := sc(290)
 	rowH := sc(30)
