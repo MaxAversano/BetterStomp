@@ -513,8 +513,13 @@ func ownProfile(force bool) *Profile {
 	sort.Slice(p.Matches, func(i, j int) bool { return p.Matches[i].Start > p.Matches[j].Start })
 	computeDerived(p)
 	// stagione completa dal server (Riot API); altrimenti ultime partite del client
-	if sc, pend, ok := serverSeason(s.Puuid, seasonStart); ok {
+	if sc, pend, ok := serverSeason(s.GameName, s.TagLine, seasonStart); ok {
 		p.Season, p.SeasonPending = sc, pend
+		// ruolo principale calcolato su tutta la stagione
+		seasonMu.Lock()
+		pos := seasonCache.positions
+		seasonMu.Unlock()
+		applySeasonRoles(p, pos)
 	} else {
 		p.Season = seasonFromHistory(all, s.Puuid, seasonStart)
 		p.SeasonLocal = true
@@ -742,14 +747,15 @@ func seasonFromHistory(games []lcuGame, puuid string, since int64) []ChampRow {
 var (
 	seasonMu    sync.Mutex
 	seasonCache struct {
-		champs  []ChampRow
-		pending int
-		at      time.Time
-		ok      bool
+		positions map[string]int
+		champs    []ChampRow
+		pending   int
+		at        time.Time
+		ok        bool
 	}
 )
 
-func serverSeason(puuid string, since int64) ([]ChampRow, int, bool) {
+func serverSeason(name, tag string, since int64) ([]ChampRow, int, bool) {
 	s := getSettings()
 	if s.RemoteURL == "" || s.RemoteToken == "" {
 		return nil, 0, false
@@ -760,7 +766,7 @@ func serverSeason(puuid string, since int64) ([]ChampRow, int, bool) {
 	if !fresh && !seasonBusy {
 		seasonBusy = true
 		go func() {
-			fetchServerSeason(s, puuid, since)
+			fetchServerSeason(s, name, tag, since)
 			seasonMu.Lock()
 			seasonBusy = false
 			seasonMu.Unlock()
@@ -775,7 +781,7 @@ func serverSeason(puuid string, since int64) ([]ChampRow, int, bool) {
 
 var seasonBusy bool
 
-func fetchServerSeason(s Settings, puuid string, since int64) {
+func fetchServerSeason(s Settings, name, tag string, since int64) {
 	c := struct {
 		champs  []ChampRow
 		pending int
@@ -783,7 +789,7 @@ func fetchServerSeason(s Settings, puuid string, since int64) {
 	}{}
 	base := strings.TrimRight(s.RemoteURL, "/")
 	base = strings.TrimSuffix(base, "/data.php")
-	u := fmt.Sprintf("%s/player.php?k=%s&puuid=%s&since=%d", base, url.QueryEscape(s.RemoteToken), url.QueryEscape(puuid), since)
+	u := fmt.Sprintf("%s/player.php?k=%s&name=%s&tag=%s&since=%d", base, url.QueryEscape(s.RemoteToken), url.QueryEscape(name), url.QueryEscape(tag), since)
 	cl := &http.Client{Timeout: 50 * time.Second}
 	resp, err := cl.Get(u)
 	if err != nil {
@@ -791,9 +797,10 @@ func fetchServerSeason(s Settings, puuid string, since int64) {
 	}
 	defer resp.Body.Close()
 	var r struct {
-		Champs  []ChampRow `json:"champs"`
-		Pending int        `json:"pending"`
-		Busy    bool       `json:"busy"`
+		Champs    []ChampRow     `json:"champs"`
+		Pending   int            `json:"pending"`
+		Busy      bool           `json:"busy"`
+		Positions map[string]int `json:"positions"`
 	}
 	if resp.StatusCode != 200 || json.NewDecoder(resp.Body).Decode(&r) != nil || r.Busy {
 		return
@@ -801,5 +808,29 @@ func fetchServerSeason(s Settings, puuid string, since int64) {
 	_ = c
 	seasonMu.Lock()
 	seasonCache.champs, seasonCache.pending, seasonCache.at, seasonCache.ok = r.Champs, r.Pending, time.Now(), true
+	seasonCache.positions = r.Positions
 	seasonMu.Unlock()
+}
+
+func applySeasonRoles(p *Profile, pos map[string]int) {
+	total := 0
+	for _, n := range pos {
+		total += n
+	}
+	if total < 20 {
+		return
+	}
+	type kv struct {
+		k string
+		v int
+	}
+	var l []kv
+	for k, v := range pos {
+		l = append(l, kv{k, v})
+	}
+	sort.Slice(l, func(i, j int) bool { return l[i].v > l[j].v })
+	p.Roles = Roles{Counts: pos, Games: total, Needed: 20, Enough: true, Main: l[0].k}
+	if len(l) > 1 && float64(l[1].v) >= float64(l[0].v)*0.25 {
+		p.Roles.Second = l[1].k
+	}
 }

@@ -8,8 +8,10 @@ check_token();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-$puuid = preg_replace('/[^A-Za-z0-9_-]/', '', $_GET['puuid'] ?? '');
-if ($puuid === '') { http_response_code(400); exit('{"error":"puuid mancante"}'); }
+// il PUUID del client non vale per la Riot API (ogni chiave ha il suo): uso il Riot ID
+$name = trim((string)($_GET['name'] ?? ''));
+$tag = trim((string)($_GET['tag'] ?? ''));
+if ($name === '' || $tag === '') { http_response_code(400); exit('{"error":"Riot ID mancante"}'); }
 $since = (int)($_GET['since'] ?? 0);
 if ($since <= 0) $since = mktime(0, 0, 0, 1, 1, (int)date('Y')) * 1000;
 
@@ -20,7 +22,22 @@ while (!flock($lock, LOCK_EX | LOCK_NB)) { // aspetto che finisca la raccolta au
     usleep(500000);
 }
 $GLOBALS['STATE'] = load_json('state.json', ['hits' => []]);
-$file = 'player_' . $puuid . '.json';
+$map = load_json('accounts.json', []);
+$key = strtolower($name . '#' . $tag);
+$puuid = $map[$key] ?? '';
+if ($puuid === '') {
+    $r = riot('https://' . regional($REGION) . '.api.riotgames.com/riot/account/v1/accounts/by-riot-id/' . rawurlencode($name) . '/' . rawurlencode($tag));
+    $puuid = $r['data']['puuid'] ?? '';
+    if ($puuid === '') {
+        save_json('state.json', $GLOBALS['STATE']);
+        flock($lock, LOCK_UN);
+        echo json_encode(['champs' => [], 'total' => 0, 'pending' => 0, 'error' => 'account non trovato']);
+        exit;
+    }
+    $map[$key] = $puuid;
+    save_json('accounts.json', $map);
+}
+$file = 'player_' . md5($puuid) . '.json';
 $p = load_json($file, ['done' => [], 'champs' => [], 'ids' => [], 'idsAt' => 0, 'since' => $since]);
 if (($p['since'] ?? 0) != $since) $p = ['done' => [], 'champs' => [], 'ids' => [], 'idsAt' => 0, 'since' => $since];
 $reg = 'https://' . regional($REGION) . '.api.riotgames.com';
@@ -32,7 +49,7 @@ if (time() - $p['idsAt'] > 600) {
     $ids = [];
     for ($s = 0; $s < 1000; $s += 100) {
         $r = riot($reg . "/lol/match/v5/matches/by-puuid/$puuid/ids?queue=420&startTime=" . intdiv($since, 1000) . "&start=$s&count=100");
-        if (!empty($r['wait']) || !empty($r['fatal']) || !isset($r['data'])) { $error = $GLOBALS['STATE']['error'] ?? 'limite richieste'; break; }
+        if (!empty($r['wait']) || !empty($r['fatal']) || !isset($r['data'])) { $error = !empty($GLOBALS['STATE']['error']) ? $GLOBALS['STATE']['error'] : 'riprovo tra poco'; break; }
         $ids = array_merge($ids, $r['data']);
         if (count($r['data']) < 100) { $p['idsAt'] = time(); break; }
     }
@@ -58,6 +75,8 @@ foreach ($p['ids'] as $id) {
         $a['cs'] += $pt['totalMinionsKilled'] + $pt['neutralMinionsKilled'];
         $a['dur'] += $m['info']['gameDuration'];
         unset($a);
+        $pos = $pt['teamPosition'] ?? '';
+        if ($pos !== '') $p['pos'][$pos] = ($p['pos'][$pos] ?? 0) + 1;
     }
 }
 save_json($file, $p);
@@ -72,4 +91,4 @@ foreach ($p['champs'] as $c => $a) {
 usort($out, function ($x, $y) { return $y['games'] - $x['games']; });
 $pending = 0;
 foreach ($p['ids'] as $id) if (!isset($p['done'][$id])) $pending++;
-echo json_encode(['champs' => $out, 'total' => count($p['ids']), 'pending' => $pending, 'error' => $error]);
+echo json_encode(['champs' => $out, 'total' => count($p['ids']), 'pending' => $pending, 'error' => $error, 'positions' => (object)($p['pos'] ?? [])]);

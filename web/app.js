@@ -179,6 +179,9 @@ function renderSide(){
     h += `<div class="card side-card">${rankLine('Solo/Duo', c.ranked?.RANKED_SOLO_5x5)}${rankLine('Flex', c.ranked?.RANKED_FLEX_SR)}
       ${p?`<div class="rkline"><span class="rkph">📅</span><span class="muted sp">Oggi (Solo/Duo)</span><b><span class="good">${p.today.w}V</span> - <span class="bad">${p.today.l}S</span></b></div>`:''}</div>`;
     const champsSrc = p?.season || [];
+    if(p && !champsSrc.length){
+      h += `<div class="card side-card"><h3>Rendimento campioni</h3><div class="small muted" style="margin-top:6px">${p.seasonLocal?'Nessuna Solo/Duo tra le ultime 20 partite del client. Collega il server statistiche per vedere tutta la stagione.':'Sto analizzando le tue partite Solo/Duo della stagione…'}${p.seasonPending?` (${p.seasonPending} in arrivo)`:''}</div></div>`;
+    }
     if(champsSrc?.length){
       const list = champsSrc.slice(0, more.champs?12:4);
       h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.seasonLocal?'· Solo/Duo · ultime 20 partite del client':`· stagione Solo/Duo · ${p.seasonGames} partite${p.seasonPending?` (${p.seasonPending} in arrivo)`:''}`}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
