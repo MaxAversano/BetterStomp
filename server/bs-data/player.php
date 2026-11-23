@@ -66,6 +66,10 @@ foreach ($p['ids'] as $id) {
     if (isset($p['done'][$id])) continue;
     if (microtime(true) - $start > 22) break;
     $r = riot($reg . '/lol/match/v5/matches/' . $id);
+    while (!empty($r['wait']) && microtime(true) - $start < 22) { // limite pieno: aspetto e riprovo
+        usleep(1500000);
+        $r = riot($reg . '/lol/match/v5/matches/' . $id);
+    }
     if (!empty($r['wait']) || !empty($r['fatal'])) break;
     $p['done'][$id] = 1;
     $m = $r['data'] ?? null;
