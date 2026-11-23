@@ -132,6 +132,7 @@ function softRefresh(){
 // barra della finestra disegnata dall'app (finestra senza bordi di Windows)
 document.addEventListener('mousedown', e=>{
   if(e.button!==0 || !document.body.classList.contains('frameless')) return;
+  const z = e.target.closest('[data-rz]'); if(z){ e.preventDefault(); fetch('/api/win?a=size'+z.dataset.rz); return; }
   const b = e.target.closest('[data-win]'); if(b){ e.preventDefault(); fetch('/api/win?a='+b.dataset.win); return; }
   if(e.target.closest('header.top') && !e.target.closest('a,button,input,select,.status,.gamechip') && e.detail===1) fetch('/api/win?a=drag');
 });
