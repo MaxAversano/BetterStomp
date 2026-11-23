@@ -111,6 +111,9 @@ func main() {
 		if d, _ := live.snapshot(); d != nil || getClientState().Phase == "InProgress" {
 			continue
 		}
+		if opggSyncState().Running { // finisce di scaricare i dati OP.GG, poi si chiude
+			continue
+		}
 		if getSettings().Autostart { // con l'avvio automatico resta nella barra, pronto per la prossima partita
 			continue
 		}

@@ -603,8 +603,8 @@ body.frameless .rz{display:block}
 .otpitems img{width:30px;height:30px;border-radius:6px}
 @media(max-width:900px){.otprow{grid-template-columns:1fr auto;}.otprune,.otpitems{grid-column:span 1}}
 
-#syncbar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,calc(100% - 40px));z-index:9999;background:rgba(18,20,32,.96);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:12px 16px;box-shadow:0 12px 40px rgba(0,0,0,.45);transition:opacity .5s,transform .5s}
-#syncbar.done{opacity:0;transform:translateX(-50%) translateY(10px)}
+#syncbar{position:fixed;left:50%;top:64px;transform:translateX(-50%);width:min(560px,calc(100% - 40px));z-index:9999;background:rgba(18,20,32,.96);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:12px 16px;box-shadow:0 12px 40px rgba(0,0,0,.45);transition:opacity .5s,transform .5s}
+#syncbar.done{opacity:0;transform:translateX(-50%) translateY(-10px)}
 #syncbar .sbtxt{display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:8px}
 #syncbar .sbtxt .sp{flex:1}
 #syncbar .sbtrack{height:6px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden}

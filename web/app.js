@@ -670,7 +670,7 @@ function drawTier(soft){
   }
   const tname = d.tier.includes('+')?TIER_IT[d.tier.replace('+','')]+'+':TIER_IT[d.tier]||'Tutti i ranghi';
   if(d.source==='OP.GG'){
-    $('#tinfo').innerHTML = `Dati <b>OP.GG</b> · ${esc(tname)} · ${num(d.matches)} partite${d.loading?` · <span class="warn">carico le statistiche del tuo elo ${d.done||0}/${d.total||'…'} (intanto: tutti i ranghi)</span>`:''}`;
+    $('#tinfo').innerHTML = `Dati <b>OP.GG</b> · ${esc(tname)} · ${num(d.matches)} partite${d.loading?` · <span class="warn">${S.st?.opggSync?.running?`aggiornamento OP.GG in corso${S.st.opggSync.total?' ('+Math.round(S.st.opggSync.done/S.st.opggSync.total*100)+'%)':''}`:`carico le statistiche di questo elo ${d.done||0}/${d.total||'…'}`} · intanto vedi tutti i ranghi</span>`:''}`;
     clearTimeout(S.ui.tpoll);
     if(d.loading) S.ui.tpoll = setTimeout(()=>{ if(route()[0]==='tier') pageTier($('#main'), route(), true); }, 4000);
   } else
