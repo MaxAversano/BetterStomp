@@ -113,12 +113,12 @@ type msgT struct {
 }
 type rect struct{ l, t, r, b int32 }
 type paintStruct struct {
-	hdc       uintptr
-	fErase    int32
-	rcPaint   rect
-	fRestore  int32
-	fIncUp    int32
-	reserved  [32]byte
+	hdc      uintptr
+	fErase   int32
+	rcPaint  rect
+	fRestore int32
+	fIncUp   int32
+	reserved [32]byte
 }
 
 // le scorciatoie sono attive solo durante la partita (così Ctrl+T ecc. restano liberi fuori dal gioco)

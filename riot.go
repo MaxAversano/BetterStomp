@@ -183,35 +183,35 @@ func regHost(p string) string  { return "https://" + regionalHost(p) + ".api.rio
 // ---------- DTO match-v5 ----------
 
 type MParticipant struct {
-	Puuid       string `json:"puuid"`
-	GameName    string `json:"riotIdGameName"`
-	Tag         string `json:"riotIdTagline"`
-	SummName    string `json:"summonerName"`
-	ChampionID  int    `json:"championId"`
-	TeamID      int    `json:"teamId"`
-	TeamPos     string `json:"teamPosition"`
-	Win         bool   `json:"win"`
-	Kills       int    `json:"kills"`
-	Deaths      int    `json:"deaths"`
-	Assists     int    `json:"assists"`
-	Minions     int    `json:"totalMinionsKilled"`
-	Neutral     int    `json:"neutralMinionsKilled"`
-	Gold        int    `json:"goldEarned"`
-	Vision      int    `json:"visionScore"`
-	Damage      int    `json:"totalDamageDealtToChampions"`
-	Item0       int    `json:"item0"`
-	Item1       int    `json:"item1"`
-	Item2       int    `json:"item2"`
-	Item3       int    `json:"item3"`
-	Item4       int    `json:"item4"`
-	Item5       int    `json:"item5"`
-	Item6       int    `json:"item6"`
-	Spell1      int    `json:"summoner1Id"`
-	Spell2      int    `json:"summoner2Id"`
-	Level       int    `json:"champLevel"`
-	Placement   int    `json:"placement"`
-	EarlySurr   bool   `json:"gameEndedInEarlySurrender"`
-	Perks       struct {
+	Puuid      string `json:"puuid"`
+	GameName   string `json:"riotIdGameName"`
+	Tag        string `json:"riotIdTagline"`
+	SummName   string `json:"summonerName"`
+	ChampionID int    `json:"championId"`
+	TeamID     int    `json:"teamId"`
+	TeamPos    string `json:"teamPosition"`
+	Win        bool   `json:"win"`
+	Kills      int    `json:"kills"`
+	Deaths     int    `json:"deaths"`
+	Assists    int    `json:"assists"`
+	Minions    int    `json:"totalMinionsKilled"`
+	Neutral    int    `json:"neutralMinionsKilled"`
+	Gold       int    `json:"goldEarned"`
+	Vision     int    `json:"visionScore"`
+	Damage     int    `json:"totalDamageDealtToChampions"`
+	Item0      int    `json:"item0"`
+	Item1      int    `json:"item1"`
+	Item2      int    `json:"item2"`
+	Item3      int    `json:"item3"`
+	Item4      int    `json:"item4"`
+	Item5      int    `json:"item5"`
+	Item6      int    `json:"item6"`
+	Spell1     int    `json:"summoner1Id"`
+	Spell2     int    `json:"summoner2Id"`
+	Level      int    `json:"champLevel"`
+	Placement  int    `json:"placement"`
+	EarlySurr  bool   `json:"gameEndedInEarlySurrender"`
+	Perks      struct {
 		Stat struct {
 			Offense int `json:"offense"`
 			Flex    int `json:"flex"`

@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net"
@@ -14,18 +16,40 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appPort = "47800"
-const appURL = "http://127.0.0.1:" + appPort + "/"
+var appURL string
+
+// cerca una porta libera; se su una porta risponde già BetterStomp riapre solo la finestra.
+// (prima usava sempre la 47800: se un'altra app, es. Casa TV, la occupava, si apriva quella)
+func listenFree() net.Listener {
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	for p := 47823; p < 47860; p++ {
+		addr := fmt.Sprintf("127.0.0.1:%d", p)
+		if ln, err := net.Listen("tcp", addr); err == nil {
+			appURL = "http://" + addr + "/"
+			return ln
+		}
+		if resp, err := client.Get("http://" + addr + "/api/whoami"); err == nil {
+			var who struct {
+				App string `json:"app"`
+			}
+			json.NewDecoder(resp.Body).Decode(&who)
+			resp.Body.Close()
+			if who.App == "BetterStomp" {
+				openAppWindow("http://" + addr + "/")
+				os.Exit(0)
+			}
+		}
+	}
+	return nil
+}
 
 func main() {
 	initDataDir()
 	if f, err := os.OpenFile(filepath.Join(dataDir, "log.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
 		log.SetOutput(f)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:"+appPort)
-	if err != nil {
-		// BetterStomp è già aperto: riapro solo la finestra
-		openAppWindow(appURL)
+	ln := listenFree()
+	if ln == nil {
 		return
 	}
 	loadSettings()

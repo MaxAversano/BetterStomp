@@ -15,14 +15,14 @@ import (
 // ---------- Live Client Data API (partita in corso, https://127.0.0.1:2999) ----------
 
 type LivePlayer struct {
-	ChampionName string `json:"championName"`
-	RiotID       string `json:"riotId"`
-	RiotName     string `json:"riotIdGameName"`
-	SummonerName string `json:"summonerName"`
-	Team         string `json:"team"`
-	Position     string `json:"position"`
-	Level        int    `json:"level"`
-	IsDead       bool   `json:"isDead"`
+	ChampionName string  `json:"championName"`
+	RiotID       string  `json:"riotId"`
+	RiotName     string  `json:"riotIdGameName"`
+	SummonerName string  `json:"summonerName"`
+	Team         string  `json:"team"`
+	Position     string  `json:"position"`
+	Level        int     `json:"level"`
+	IsDead       bool    `json:"isDead"`
 	RespawnTimer float64 `json:"respawnTimer"`
 	Scores       struct {
 		Kills      int `json:"kills"`
@@ -202,7 +202,7 @@ type OWidget struct {
 	Accent string  `json:"accent"`
 	Width  int     `json:"width"`
 	Lines  []OLine `json:"lines"`
-	Pill   bool    `json:"pill,omitempty"` // etichetta piccola sulla minimappa
+	Pill   bool    `json:"pill,omitempty"`  // etichetta piccola sulla minimappa
 	Pixel  bool    `json:"pixel,omitempty"` // X/Y in pixel dal basso-destra (minimappa)
 }
 

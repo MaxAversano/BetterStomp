@@ -20,6 +20,10 @@ func jsonOut(w http.ResponseWriter, v any) {
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
 
 func setupAPI(mux *http.ServeMux) {
+	mux.HandleFunc("/api/whoami", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, map[string]string{"app": "BetterStomp"})
+	})
+
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		lastPing.Store(time.Now().Unix())
 		jsonOut(w, map[string]bool{"ok": true})

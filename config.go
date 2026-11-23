@@ -63,22 +63,22 @@ type StreamSettings struct {
 }
 
 type Settings struct {
-	Theme         string          `json:"theme"`
-	Region        string          `json:"region"`
-	RiotAPIKey    string          `json:"riotApiKey"`
-	EngineEnabled bool            `json:"engineEnabled"`
-	AutoRunes     bool            `json:"autoRunes"`
-	AutoSpells    bool            `json:"autoSpells"`
-	AutoItems     bool            `json:"autoItems"`
-	PreferPersonal bool           `json:"preferPersonal"`
-	FlashKey      string          `json:"flashKey"`
-	DefaultMode   string          `json:"defaultMode"`
-	DefaultTier   string          `json:"defaultTier"`
-	LeaguePath    string          `json:"leaguePath"`
-	Premium       bool            `json:"premium"`
-	Animations    bool            `json:"animations"`
-	Overlay       OverlaySettings `json:"overlay"`
-	Stream        StreamSettings  `json:"stream"`
+	Theme          string          `json:"theme"`
+	Region         string          `json:"region"`
+	RiotAPIKey     string          `json:"riotApiKey"`
+	EngineEnabled  bool            `json:"engineEnabled"`
+	AutoRunes      bool            `json:"autoRunes"`
+	AutoSpells     bool            `json:"autoSpells"`
+	AutoItems      bool            `json:"autoItems"`
+	PreferPersonal bool            `json:"preferPersonal"`
+	FlashKey       string          `json:"flashKey"`
+	DefaultMode    string          `json:"defaultMode"`
+	DefaultTier    string          `json:"defaultTier"`
+	LeaguePath     string          `json:"leaguePath"`
+	Premium        bool            `json:"premium"`
+	Animations     bool            `json:"animations"`
+	Overlay        OverlaySettings `json:"overlay"`
+	Stream         StreamSettings  `json:"stream"`
 }
 
 func defaultSettings() Settings {
@@ -109,9 +109,9 @@ func defaultSettings() Settings {
 }
 
 var (
-	dataDir   string
+	dataDir    string
 	settingsMu sync.RWMutex
-	settings  Settings
+	settings   Settings
 )
 
 func initDataDir() {

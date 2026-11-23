@@ -71,12 +71,12 @@ type ChampRow struct {
 }
 
 type Roles struct {
-	Main    string         `json:"main"`
-	Second  string         `json:"second"`
-	Counts  map[string]int `json:"counts"`
-	Games   int            `json:"games"`
-	Needed  int            `json:"needed"`
-	Enough  bool           `json:"enough"`
+	Main   string         `json:"main"`
+	Second string         `json:"second"`
+	Counts map[string]int `json:"counts"`
+	Games  int            `json:"games"`
+	Needed int            `json:"needed"`
+	Enough bool           `json:"enough"`
 }
 
 type Profile struct {

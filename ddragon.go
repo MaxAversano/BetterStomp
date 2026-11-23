@@ -19,27 +19,27 @@ import (
 var webClient = &http.Client{Timeout: 25 * time.Second}
 
 type DDItem struct {
-	Name   string `json:"name"`
-	Gold   struct {
+	Name string `json:"name"`
+	Gold struct {
 		Total       int  `json:"total"`
 		Purchasable bool `json:"purchasable"`
 	} `json:"gold"`
-	Into   []string           `json:"into"`
-	From   []string           `json:"from"`
-	Tags   []string           `json:"tags"`
-	Maps   map[string]bool    `json:"maps"`
-	Stats  map[string]float64 `json:"stats"`
-	Depth  int                `json:"depth"`
-	InStore *bool             `json:"inStore"`
-	RequiredChampion string   `json:"requiredChampion"`
+	Into             []string           `json:"into"`
+	From             []string           `json:"from"`
+	Tags             []string           `json:"tags"`
+	Maps             map[string]bool    `json:"maps"`
+	Stats            map[string]float64 `json:"stats"`
+	Depth            int                `json:"depth"`
+	InStore          *bool              `json:"inStore"`
+	RequiredChampion string             `json:"requiredChampion"`
 }
 
 type DDChamp struct {
-	ID   string   `json:"id"`
-	Key  string   `json:"key"`
-	Name string   `json:"name"`
-	Title string  `json:"title"`
-	Tags []string `json:"tags"`
+	ID    string   `json:"id"`
+	Key   string   `json:"key"`
+	Name  string   `json:"name"`
+	Title string   `json:"title"`
+	Tags  []string `json:"tags"`
 }
 
 type Static struct {
@@ -235,16 +235,16 @@ type PatchGroup struct {
 }
 
 type PatchReport struct {
-	Patch      string       `json:"patch"`
-	Previous   string       `json:"previous"`
-	Source     string       `json:"source"`
-	URL        string       `json:"url"`
-	Title      string       `json:"title"`
-	Image      string       `json:"image"`
-	Champions  []PatchEntry `json:"champions"`
-	Items      []PatchEntry `json:"items"`
-	Other      []PatchEntry `json:"other"`
-	Fetched    int64        `json:"fetched"`
+	Patch     string       `json:"patch"`
+	Previous  string       `json:"previous"`
+	Source    string       `json:"source"`
+	URL       string       `json:"url"`
+	Title     string       `json:"title"`
+	Image     string       `json:"image"`
+	Champions []PatchEntry `json:"champions"`
+	Items     []PatchEntry `json:"items"`
+	Other     []PatchEntry `json:"other"`
+	Fetched   int64        `json:"fetched"`
 }
 
 var statLabels = map[string]string{

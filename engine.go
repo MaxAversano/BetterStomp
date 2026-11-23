@@ -169,19 +169,21 @@ type DB struct {
 	Total   int                `json:"total"`
 }
 
-func newDB(p string) *DB { return &DB{Patch: p, Buckets: map[string]*Bucket{}, Seen: map[string]bool{}} }
+func newDB(p string) *DB {
+	return &DB{Patch: p, Buckets: map[string]*Bucket{}, Seen: map[string]bool{}}
+}
 
 type Engine struct {
-	mu       sync.RWMutex
-	db       *DB
-	prev     *DB
-	pools    map[string][]string
-	lastErr  string
-	running  bool
-	started  time.Time
-	session  int
-	cache    map[string]cachedBucket
-	dirty    bool
+	mu      sync.RWMutex
+	db      *DB
+	prev    *DB
+	pools   map[string][]string
+	lastErr string
+	running bool
+	started time.Time
+	session int
+	cache   map[string]cachedBucket
+	dirty   bool
 }
 
 type cachedBucket struct {
@@ -711,36 +713,36 @@ type PosShare struct {
 }
 
 type BuildResult struct {
-	Champion    int        `json:"champion"`
-	Position    string     `json:"position"`
-	Positions   []PosShare `json:"positions"`
-	Mode        string     `json:"mode"`
-	Tier        string     `json:"tier"`
-	Patch       string     `json:"patch"`
-	Games       int        `json:"games"`
-	Matches     int        `json:"matches"`
-	WinRate     float64    `json:"winRate"`
-	PickRate    float64    `json:"pickRate"`
-	BanRate     float64    `json:"banRate"`
-	TierLabel   string     `json:"tierLabel"`
-	KDA         [3]float64 `json:"kda"`
-	CSMin       float64    `json:"csMin"`
-	Runes       *RunePage  `json:"runes"`
-	RunesAlt    *RunePage  `json:"runesAlt"`
-	Spells      []int      `json:"spells"`
-	SpellsWR    float64    `json:"spellsWR"`
-	Starting    []int      `json:"starting"`
-	Core        []int      `json:"core"`
-	Situational []int      `json:"situational"`
+	Champion    int             `json:"champion"`
+	Position    string          `json:"position"`
+	Positions   []PosShare      `json:"positions"`
+	Mode        string          `json:"mode"`
+	Tier        string          `json:"tier"`
+	Patch       string          `json:"patch"`
+	Games       int             `json:"games"`
+	Matches     int             `json:"matches"`
+	WinRate     float64         `json:"winRate"`
+	PickRate    float64         `json:"pickRate"`
+	BanRate     float64         `json:"banRate"`
+	TierLabel   string          `json:"tierLabel"`
+	KDA         [3]float64      `json:"kda"`
+	CSMin       float64         `json:"csMin"`
+	Runes       *RunePage       `json:"runes"`
+	RunesAlt    *RunePage       `json:"runesAlt"`
+	Spells      []int           `json:"spells"`
+	SpellsWR    float64         `json:"spellsWR"`
+	Starting    []int           `json:"starting"`
+	Core        []int           `json:"core"`
+	Situational []int           `json:"situational"`
 	ItemWR      map[int]float64 `json:"itemWR"`
-	Skills      string     `json:"skills"`
-	SkillFirst  string     `json:"skillFirst"`
-	Best        []Pair     `json:"best"`
-	Worst       []Pair     `json:"worst"`
-	Synergy     []Pair     `json:"synergy"`
-	Source      string     `json:"source"`
-	Personal    bool       `json:"personal"`
-	Widened     bool       `json:"widened"`
+	Skills      string          `json:"skills"`
+	SkillFirst  string          `json:"skillFirst"`
+	Best        []Pair          `json:"best"`
+	Worst       []Pair          `json:"worst"`
+	Synergy     []Pair          `json:"synergy"`
+	Source      string          `json:"source"`
+	Personal    bool            `json:"personal"`
+	Widened     bool            `json:"widened"`
 }
 
 func topS(m map[string]*Stat, min int) (string, *Stat) {
