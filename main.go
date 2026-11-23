@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 )
 
@@ -35,7 +36,12 @@ func listenFree() net.Listener {
 			json.NewDecoder(resp.Body).Decode(&who)
 			resp.Body.Close()
 			if who.App == "BetterStomp" {
-				openAppWindow("http://" + addr + "/")
+				// già aperta: chiede all'istanza in corso di mostrare la sua finestra
+				if r2, err := client.Get("http://" + addr + "/api/win?a=open"); err == nil && r2.StatusCode < 300 {
+					r2.Body.Close()
+				} else {
+					openAppWindowExternal("http://" + addr + "/")
+				}
 				os.Exit(0)
 			}
 		}
@@ -45,13 +51,17 @@ func listenFree() net.Listener {
 
 func main() {
 	initDataDir()
-	if f, err := os.OpenFile(filepath.Join(dataDir, "log.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
-		log.SetOutput(f)
-	}
-	ln := listenFree()
+	ln := listenFree() // se l'app è già aperta, qui mostra la sua finestra ed esce
 	if ln == nil {
 		return
 	}
+	if f, err := os.OpenFile(filepath.Join(dataDir, "log.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+		log.SetOutput(f)
+	}
+	if f, err := os.OpenFile(filepath.Join(dataDir, "crash.txt"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		debug.SetCrashOutput(f, debug.CrashOptions{}) // eventuali crash finiscono qui
+	}
+	log.Printf("avvio su %s", appURL)
 	loadSettings()
 	loadPersonal()
 	setDPIAware()
@@ -94,6 +104,7 @@ func main() {
 		if d, _ := live.snapshot(); d != nil || getClientState().Phase == "InProgress" {
 			continue
 		}
+		log.Printf("chiusura: finestra chiusa (ultimo ping %v)", time.Unix(lp, 0).Format("15:04:05"))
 		appExit()
 	}
 }

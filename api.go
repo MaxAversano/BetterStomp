@@ -73,6 +73,11 @@ func setupAPI(mux *http.ServeMux) {
 			go restartApp()
 			return
 		}
+		if q.Get("a") == "open" {
+			go openAppWindow(appURL)
+			w.WriteHeader(204)
+			return
+		}
 		if q.Get("a") == "debug" {
 			jsonOut(w, frameInfo())
 			return

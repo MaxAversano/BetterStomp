@@ -12,9 +12,10 @@ func startOverlay()                         {}
 func startOCR()          {}
 func ocrCS() (int, bool) { return 0, false }
 
-func framelessLoop()          {}
-func windowAction(a string)   {}
-func isFrameless() bool       { return false }
-func setInner(h, dpr float64) {}
-func frameInfo() any          { return nil }
-func windowKind() string      { return "" }
+func framelessLoop()                   {}
+func windowAction(a string)            {}
+func isFrameless() bool                { return false }
+func setInner(h, dpr float64)          {}
+func frameInfo() any                   { return nil }
+func windowKind() string               { return "" }
+func openAppWindowExternal(url string) {}

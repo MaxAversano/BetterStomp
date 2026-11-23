@@ -7,6 +7,7 @@ package main
 // torna alla finestra "app" di Edge.
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -141,6 +142,7 @@ func wvWndProc(h, msg, wp, lp uintptr) uintptr {
 		pDestroyWindow.Call(h)
 		return 0
 	case 0x0002: // WM_DESTROY
+		log.Printf("finestra WebView2 chiusa")
 		wvMu.Lock()
 		if wvController != 0 {
 			comCall(wvController, 24) // Close
@@ -300,6 +302,7 @@ func wvThread(dll, url string, res chan bool) {
 
 	ok := make(chan bool, 1)
 	ctrlHandler := newHandler(func(this, hr, ctrl uintptr) uintptr {
+		log.Printf("WebView2: controller 0x%08x", uint32(hr))
 		if hr != 0 || ctrl == 0 {
 			ok <- false
 			return 0
@@ -327,6 +330,7 @@ func wvThread(dll, url string, res chan bool) {
 		return 0
 	})
 	envHandler := newHandler(func(this, hr, env uintptr) uintptr {
+		log.Printf("WebView2: ambiente 0x%08x", uint32(hr))
 		if hr != 0 || env == 0 {
 			ok <- false
 			return 0
@@ -338,6 +342,7 @@ func wvThread(dll, url string, res chan bool) {
 	started := false
 	for _, rt := range []uintptr{0, 1} {
 		r, _, _ := syscall.SyscallN(create, 1, rt, uintptr(unsafe.Pointer(ud)), 0, uintptr(unsafe.Pointer(envHandler)))
+		log.Printf("WebView2: avvio runtime tipo %d → 0x%08x (%s)", rt, uint32(r), dll)
 		if int32(r) >= 0 {
 			started = true
 			break

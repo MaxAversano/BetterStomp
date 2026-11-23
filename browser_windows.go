@@ -36,6 +36,11 @@ func openAppWindow(url string) {
 	if !getSettings().NativeFrame && openWebViewWindow(url) {
 		return
 	}
+	openAppWindowExternal(url)
+}
+
+// finestra "app" di Edge (processo separato: resta aperta anche se questo processo termina)
+func openAppWindowExternal(url string) {
 	b := findBrowser()
 	if b == "" {
 		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
