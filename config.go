@@ -51,6 +51,7 @@ type OverlaySettings struct {
 	MinimapBottom int       `json:"minimapBottom"` // distanza dal bordo inferiore
 	Timers        Timers    `json:"timers"`
 	Compact       bool      `json:"compact"`     // versione riassunta su una riga
+	Classic       bool      `json:"classic"`     // riquadro a righe invece della scheda con ritratto
 	ShowKP        bool      `json:"showKP"`      // partecipazione alle uccisioni
 	CSGoal        string    `json:"csGoal"`      // elo di riferimento: on (elo) | off
 	CSGoalValue   float64   `json:"csGoalValue"` // obiettivo fisso in CS/min (0 = nessuno)

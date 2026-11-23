@@ -217,6 +217,35 @@ type OWidget struct {
 	Icons  bool    `json:"icons,omitempty"`    // lucchetto, impostazioni, chiudi
 	Locked bool    `json:"locked,omitempty"`   // bloccato con il lucchetto
 	Text   bool    `json:"textOnly,omitempty"` // solo testo con contorno (minimappa)
+	Card   *OCard  `json:"card,omitempty"`     // stile scheda (ritratto, KDA, CS, obiettivi)
+	Teams  *OTeams `json:"teams,omitempty"`    // schermata di caricamento: due squadre affiancate
+}
+
+type OCard struct {
+	Champ   string  `json:"champ"` // id Data Dragon per il ritratto
+	KDA     string  `json:"kda"`
+	CS      string  `json:"cs"`
+	CSSub   string  `json:"csSub"` // CS/min e riferimento
+	CSColor string  `json:"csColor"`
+	Rows    []OLine `json:"rows"` // altre statistiche (GPM, KP, LVL)
+	Objs    []OLine `json:"objs"` // timer obiettivi
+}
+
+type OTeams struct {
+	Ally  []OTeamRow `json:"ally"`
+	Enemy []OTeamRow `json:"enemy"`
+}
+
+type OTeamRow struct {
+	Champ   string `json:"champ"` // id Data Dragon
+	ChampNm string `json:"champName"`
+	Name    string `json:"name"`
+	Rank    string `json:"rank"`
+	RankCol string `json:"rankColor"`
+	WR      string `json:"wr"`
+	WRCol   string `json:"wrColor"`
+	Games   string `json:"games"`
+	Me      bool   `json:"me"`
 }
 
 type OTile struct {
@@ -380,8 +409,16 @@ func buildOverlayModel(preview bool) OverlayModel {
 	live.mu.RLock()
 	tabNow := live.tabHeld
 	live.mu.RUnlock()
+	cardOn := o.CS.On && me != nil && !o.Classic && !o.Compact && (o.BenchAlways || tabNow || preview)
 	if o.CS.On && me != nil && (o.BenchAlways || tabNow || preview) {
-		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, nil))
+		var objForCard []OLine
+		if cardOn {
+			objForCard = objLines
+		}
+		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, objForCard))
+	}
+	if cardOn {
+		objLines = nil // i timer sono già nella scheda
 	}
 	// notifiche obiettivi: promemoria prima dello spawn e avviso quando compare
 	if o.Notify.On && !aram {
@@ -613,8 +650,12 @@ func buildOverlayModel(preview bool) OverlayModel {
 		}, o))
 	}
 	// statistiche squadre (Ctrl+T)
-	if showLoad && o.Loading.On && !preview {
-		if lobby := getClientState().Lobby; len(lobby) > 0 {
+	if showLoad && !preview {
+		lobby := getClientState().Lobby
+		if len(lobby) == 0 {
+			lobby = lobbyFromLive(d)
+		}
+		if len(lobby) > 0 {
 			m.Widgets = append(m.Widgets, loadingWidget(lobby, o))
 		}
 	}
@@ -664,30 +705,84 @@ func rankShort(tier, div string) string {
 	return n + " " + div
 }
 
+var tierCol = map[string]string{"IRON": "#8C8C8C", "BRONZE": "#C0814F", "SILVER": "#AEB8C4", "GOLD": "#E6B450", "PLATINUM": "#3FC5B4",
+	"EMERALD": "#2FD07A", "DIAMOND": "#6FA8FF", "MASTER": "#C56BFF", "GRANDMASTER": "#FF6464", "CHALLENGER": "#FFD86B"}
+
+// schermata di caricamento: le due squadre affiancate, con rango e win rate della stagione
 func loadingWidget(lobby []LobbyPlayer, o OverlaySettings) OWidget {
-	var lines []OLine
-	for _, team := range []int{1, 2} {
-		if team == 1 {
-			lines = append(lines, OLine{Text: "LA TUA SQUADRA", Color: colGood, Bold: true})
-		} else {
-			lines = append(lines, OLine{Text: "SQUADRA NEMICA", Color: colBad, Bold: true})
+	t := &OTeams{}
+	me := ""
+	if s := getClientState().Summoner; s != nil {
+		me = s.Puuid
+	}
+	for _, p := range lobby {
+		r := OTeamRow{Name: p.Name, Rank: "Senza rango", RankCol: colMuted, WRCol: colMuted, Me: p.Puuid != "" && p.Puuid == me}
+		if p.Champion > 0 {
+			r.ChampNm = champName(p.Champion)
+			static.mu.RLock()
+			r.Champ = static.Champs[p.Champion].ID
+			static.mu.RUnlock()
 		}
-		for _, p := range lobby {
-			if p.Team != team {
-				continue
+		if p.Tier != "" && p.Tier != "NONE" {
+			r.Rank = rankShort(p.Tier, p.Division)
+			if p.Tier != "MASTER" && p.Tier != "GRANDMASTER" && p.Tier != "CHALLENGER" || p.LP > 0 {
+				r.Rank += fmt.Sprintf(" · %d LP", p.LP)
 			}
-			wr := ""
-			if g := p.Wins + p.Losses; g > 0 {
-				wr = fmt.Sprintf(" · %d%% (%d)", 100*p.Wins/g, g)
+			r.RankCol = tierCol[p.Tier]
+		}
+		if g := p.Wins + p.Losses; g > 0 {
+			wr := float64(p.Wins) / float64(g)
+			r.WR = fmt.Sprintf("%d%%", int(wr*100+0.5))
+			r.Games = fmt.Sprintf("%d partite", g)
+			switch {
+			case wr >= 0.55:
+				r.WRCol = colGood
+			case wr < 0.47:
+				r.WRCol = colBad
+			default:
+				r.WRCol = colText
 			}
-			name := p.Name
-			if c := champName(p.Champion); p.Champion > 0 {
-				name = c + "  " + name
-			}
-			lines = append(lines, OLine{Text: name, Right: rankShort(p.Tier, p.Division) + wr, Color: colText})
+		}
+		if p.Team == 1 {
+			t.Ally = append(t.Ally, r)
+		} else {
+			t.Enemy = append(t.Enemy, r)
 		}
 	}
-	return OWidget{ID: "loading", Key: "loading", Icons: true, Locked: o.Loading.Locked, X: o.Loading.X, Y: o.Loading.Y, Anchor: "center", Title: "STATISTICHE SQUADRE  ·  Ctrl+T", Accent: colAccent, Width: 520, Lines: lines}
+	return OWidget{ID: "loading", Key: "loading", Icons: true, Locked: o.Loading.Locked, X: o.Loading.X, Y: o.Loading.Y, Anchor: "center", Title: "SQUADRE  ·  Ctrl+T", Accent: colAccent, Width: 760, Teams: t}
+}
+
+// lobby ricavata dalla partita in corso quando il client non la fornisce (niente rango)
+func lobbyFromLive(d *LiveData) []LobbyPlayer {
+	var me *LivePlayer
+	for i := range d.AllPlayers {
+		if samePlayer(d.AllPlayers[i], d.ActivePlayer.RiotID, d.ActivePlayer.RiotName) || samePlayer(d.AllPlayers[i], d.ActivePlayer.SummonerName, "") {
+			me = &d.AllPlayers[i]
+		}
+	}
+	var out []LobbyPlayer
+	for _, p := range d.AllPlayers {
+		team := 2
+		if me != nil && p.Team == me.Team {
+			team = 1
+		}
+		name := p.RiotName
+		if name == "" {
+			name = strings.SplitN(p.RiotID, "#", 2)[0]
+		}
+		out = append(out, LobbyPlayer{Name: name, Champion: champByName(champDDID(p.ChampionName)), Team: team})
+	}
+	return out
+}
+
+// "Lee Sin" / "game_character_displayname_LeeSin" → "LeeSin"
+func champDDID(name string) string {
+	if id := champByName(name); id > 0 {
+		static.mu.RLock()
+		defer static.mu.RUnlock()
+		return static.Champs[id].ID
+	}
+	return strings.ReplaceAll(name, " ", "")
 }
 
 func demoLive() *LiveData {
@@ -848,6 +943,27 @@ func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj 
 	}
 	if o.BenchLVL {
 		w.Lines = append(w.Lines, row("LVL", float64(me.Level), math.Floor(bLVL), hasBench))
+	}
+	if !o.Compact && !o.Classic {
+		c := &OCard{Champ: champDDID(me.ChampionName), KDA: fmt.Sprintf("%d / %d / %d", me.Scores.Kills, me.Scores.Deaths, me.Scores.Assists), CS: fmt.Sprint(cs), CSColor: colText, Objs: obj}
+		c.CSSub = fmt1(csm) + "/min"
+		ref := 0.0
+		if o.CSGoalValue > 0 {
+			ref = o.CSGoalValue
+		} else if hasBench {
+			ref = bCSM
+		}
+		if ref > 0 {
+			c.CSSub += "  ·  rif. " + fmt1(ref)
+			c.CSColor = cmpCol(csm, ref)
+		}
+		for _, l := range w.Lines {
+			if l.Text == "GPM" || l.Text == "KP" || l.Text == "LVL" {
+				c.Rows = append(c.Rows, l)
+			}
+		}
+		w.Card, w.Lines, w.Title, w.Width = c, nil, "", 200
+		return w
 	}
 	if o.Compact {
 		w.Title, w.Icons = "", false

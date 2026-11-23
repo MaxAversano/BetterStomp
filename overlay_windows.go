@@ -153,7 +153,6 @@ func setHotkeys(on bool) {
 		pRegisterHotKey.Call(ovHwnd, uintptr(i), modControl|modShift|modNoRepeat, uintptr('0'+i))
 		pRegisterHotKey.Call(ovHwnd, uintptr(10+i), modControl|modAlt|modNoRepeat, uintptr('0'+i))
 	}
-	pRegisterHotKey.Call(ovHwnd, 20, modControl|modNoRepeat, 'T')
 	pRegisterHotKey.Call(ovHwnd, 21, modControl|modShift|modNoRepeat, 'O')
 	pRegisterHotKey.Call(ovHwnd, 22, modControl|modShift|modNoRepeat, 'C')
 	pRegisterHotKey.Call(ovHwnd, 23, modControl|modShift|modNoRepeat, 'E')
@@ -344,6 +343,18 @@ func paintOverlay(hdc uintptr) {
 		x := int32(w.X * float64(ovW))
 		y := int32(w.Y * float64(ovH))
 		pad := sc(8)
+		if w.Card != nil || w.Teams != nil {
+			var r rect
+			var ic []iconHit
+			if w.Card != nil {
+				r, ic = drawCard(mem, w, x, y, k, interactive, s)
+			} else {
+				r, ic = drawTeams(mem, w, x, y, k, interactive, s)
+			}
+			icons = append(icons, ic...)
+			hits = append(hits, hitRect{w.Key, r, w.Anchor == "center" || w.Teams != nil})
+			continue
+		}
 
 		// versione riassunta: una riga sola
 		if len(w.Segs) > 0 {
@@ -622,7 +633,20 @@ func screenSize() (int32, int32) {
 	return int32(w), int32(h)
 }
 
+var ctrlTWas bool
+
 func overlayTick() {
+	// Ctrl+T letto direttamente dalla tastiera (le scorciatoie di sistema a volte non arrivano col gioco in primo piano)
+	ct, _, _ := pGetAsyncKeyState.Call(0x11)
+	tt, _, _ := pGetAsyncKeyState.Call('T')
+	if now := ct&0x8000 != 0 && tt&0x8000 != 0; now != ctrlTWas {
+		ctrlTWas = now
+		if now {
+			live.mu.Lock()
+			live.showLoad = !live.showLoad
+			live.mu.Unlock()
+		}
+	}
 	down, _, _ := pGetAsyncKeyState.Call(0x09) // TAB
 	live.mu.Lock()
 	live.tabHeld = down&0x8000 != 0
@@ -873,6 +897,8 @@ func panelOption(opt string) {
 		}
 	case "compact":
 		o.Compact = !o.Compact
+	case "classic":
+		o.Classic = !o.Classic
 	case "kp":
 		o.ShowKP = !o.ShowKP
 	case "hide":
@@ -909,6 +935,7 @@ func drawPanel(hdc uintptr, wr rect, o OverlaySettings, k float64) []iconHit {
 			{"Confronto con elo", [][2]string{{onOff(o.CSGoal != "off"), "opt:elo"}}, ""},
 			{"Elo di riferimento", [][2]string{{"◀", "opt:tier-"}, {"▶", "opt:tier+"}}, tierIT[o.CSGoalTier]},
 			{"Obiettivo CS fisso", [][2]string{{"−", "opt:goal-"}, {"+", "opt:goal+"}}, goal},
+			{"Scheda con ritratto", [][2]string{{onOff(!o.Classic), "opt:classic"}}, ""},
 			{"Versione riassunta", [][2]string{{onOff(o.Compact), "opt:compact"}}, ""},
 			{"Partecipazione uccisioni", [][2]string{{onOff(o.ShowKP), "opt:kp"}}, ""},
 		}

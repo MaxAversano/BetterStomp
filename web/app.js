@@ -824,6 +824,7 @@ function ovSettingsHTML(k){
   const o = S.settings.overlay;
   const eloVal = o.csGoal==='off' ? 'off' : (o.csGoalTier||'MASTER');
   if(k==='bench') return bzRow('Visualizzazione', `<select data-set="overlay.compact" data-bool="1">${opt([['false','Completa'],['true','Riassunta']], String(!!o.compact))}</select>`)
+    + bzRow('Stile classico a righe', sw('overlay.classic', !!o.classic)) + `<div class="tiny dim" style="margin-top:-6px">Spento = scheda con ritratto del campione, KDA, CS e timer di drago e barone</div>`
     + bzRow('Divisione di riferimento', `<select data-benchelo="1">${opt([['off','Nessuna'],['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])), eloVal)}</select>`)
     + bzRow('Sempre visibile', sw('overlay.benchAlways', o.benchAlways)) + `<div class="tiny dim" style="margin-top:-6px">Se spento compare solo tenendo premuto TAB</div>`
     + bzRow('KDA', sw('overlay.benchKDA', o.benchKDA)) + bzRow('CS al minuto', sw('overlay.benchCSM', o.benchCSM)) + bzRow('Oro al minuto', sw('overlay.benchGPM', o.benchGPM))
@@ -858,6 +859,19 @@ async function drawOverlayPreview(){
     if(w.pill){ const ps=o.pillScale||0.8; h += `<div class="mmtxt" style="left:${W - w.x*U}px;top:${H - w.y*U}px;color:${w.lines[0].color};font-size:${Math.max(4,12*ps*k)}px">${esc(w.lines[0].text)}</div>`; continue; }
     const left = w.x*W, top = w.y*H, center = w.anchor==='center';
     const pos = `left:${left}px;top:${top}px;${center?'transform:translateX(-50%);':''}`;
+    if(w.card){ const c=w.card, ci=c.champ?`${DD}${S.v}/img/champion/${c.champ}.png`:'';
+      const objIc = n=>{ n=n.toLowerCase(); return n.includes('drag')?['🔥','#FF8A3D']:n.includes('baron')||n.includes('barone')?['👑','#A77BFF']:n.includes('atakhan')?['☠','#FF5C5C']:['◉','#B48CFF']; };
+      h += `<div class="ow2 bz ovcard" data-key="${w.key||''}" style="${pos};width:${px(200)};border-radius:${px(14)};padding:${px(14)};font-size:${px(12)}">
+        <div class="r1" style="gap:${px(14)}"><img src="${ci}" style="width:${px(54)};height:${px(54)}"><div><b style="font-size:${px(13)}">KDA</b><div style="font-size:${px(17)};font-weight:800">${esc(c.kda)}</div></div></div>
+        <div style="margin:${px(10)} 0 0 ${px(14)}"><b style="font-size:${px(13)}">CS</b><div class="r1" style="justify-content:space-between"><b style="font-size:${px(18)};color:${c.csColor}">${esc(c.cs)}</b><span style="color:#8C93A3;font-size:${px(10.5)}">${esc(c.csSub)}</span></div></div>
+        ${(c.rows||[]).map(l=>`<div class="ln" style="height:${px(20)};padding-left:${px(14)}"><span style="color:#8C93A3;font-weight:700">${esc(l.text)}</span><span><b style="color:${l.color}">${esc(l.right)}</b>${l.extra?`<span class="ex"> / ${esc(l.extra)}</span>`:''}</span></div>`).join('')}
+        ${(c.objs||[]).length?`<div class="sepl" style="margin:${px(10)} 0"></div>`+c.objs.map(o=>{const [s,col]=objIc(o.text); return `<div class="r1" style="gap:${px(12)};height:${px(44)}"><span class="oi" style="width:${px(34)};height:${px(34)};border-color:${col};color:${col};font-size:${px(16)}">${s}</span><div><b style="font-size:${px(12)}">${esc(o.text)}</b><div style="font-size:${px(15)};font-weight:800;color:${o.color}">${esc(o.right)}</div></div></div>`}).join(''):''}</div>`;
+      continue; }
+    if(w.teams){ const row=(p,col)=>`<div class="tr ${p.me?'me':''}" style="height:${px(52)};gap:${px(12)}"><img src="${p.champ?`${DD}${S.v}/img/champion/${p.champ}.png`:''}" style="width:${px(38)};height:${px(38)};border-color:${col}"><div class="sp"><b style="font-size:${px(13)}">${esc(p.champName||'')}</b><div style="color:#8C93A3;font-size:${px(11)}">${esc(p.name)}</div></div><div style="text-align:right"><b style="color:${p.rankColor};font-size:${px(12)}">${esc(p.rank)}</b><div style="color:${p.wrColor};font-size:${px(11)};font-weight:700">${esc(p.wr)}${p.games?' · '+esc(p.games):''}</div></div></div>`;
+      h += `<div class="ow2 bz ovteams" data-key="${w.key||''}" style="left:${left}px;top:${top}px;transform:translateX(-50%);width:${px(780)};border-radius:${px(14)};padding:${px(10)} ${px(16)} ${px(16)};gap:${px(16)}">
+        <div><div class="th" style="color:#38D6FF;font-size:${px(11)};height:${px(30)}">LA TUA SQUADRA</div>${w.teams.ally.map(p=>row(p,'#38D6FF')).join('')}</div>
+        <div><div class="th" style="color:#FF5C7A;font-size:${px(11)};height:${px(30)}">SQUADRA NEMICA</div>${(w.teams.enemy||[]).map(p=>row(p,'#FF5C7A')).join('')}</div></div>`;
+      continue; }
     if(w.segs?.length){
       h += `<div class="ow2 bz seg1" data-key="${w.key||''}" style="${pos};font-size:${px(11.5)};padding:0 ${px(8)};height:${px(24)};gap:${px(5)};border-radius:${px(6)}">${w.segs.map(sg=>`<span style="color:${sg.color};font-weight:${sg.bold?800:500}">${esc(sg.text)}</span>`).join('')}</div>`;
       continue;
