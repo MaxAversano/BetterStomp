@@ -69,7 +69,9 @@ function riot($url) {
     $hits = array_values(array_filter(isset($st['hits']) ? $st['hits'] : [], function ($t) use ($now) { return $now - $t < 120; }));
     $last1 = count(array_filter($hits, function ($t) use ($now) { return $now - $t < 1; }));
     $max2 = $st['max2'] ?? 95; $max1 = $st['max1'] ?? 18;
-    if (count($hits) >= $max2) { $st['hits'] = $hits; return ['wait' => true]; }
+    // la raccolta automatica lascia libere alcune richieste per il profilo (player.php)
+    $reserve = isset($GLOBALS['RESERVE']) ? $GLOBALS['RESERVE'] : 0;
+    if (count($hits) >= $max2 - $reserve) { $st['hits'] = $hits; return ['wait' => true]; }
     if ($last1 >= $max1) { usleep(1100000); }
     if (!empty($st['blockedUntil']) && $st['blockedUntil'] > time()) return ['wait' => true];
     $hits[] = microtime(true);

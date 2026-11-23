@@ -295,6 +295,7 @@ func newDB(p string) *DB {
 }
 
 type Engine struct {
+	legacy    *DB // archivio raccolto dalla versione precedente di BetterStomp
 	mu        sync.RWMutex
 	remote    *DB // statistiche raccolte dal server (sempre acceso)
 	remoteErr string
@@ -841,6 +842,12 @@ func (e *Engine) merged(db *DB, mode string, tiers []string) *Bucket {
 	if db == nil {
 		return newBucket()
 	}
+	if db != nil && db == e.legacy {
+		if b := db.Buckets[mode+"|ALL"]; b != nil {
+			return b
+		}
+		return newBucket()
+	}
 	rem := e.remote
 	if db != e.db || rem == nil || rem.Patch != db.Patch {
 		rem = nil
@@ -918,6 +925,11 @@ func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
 		pb := e.merged(e.prev, mode, tierSet(tf))
 		if pb.Matches > b.Matches {
 			b, patch = pb, e.prev.Patch
+		}
+	}
+	if b.Matches < 200 && e.legacy != nil && mode == "ranked" {
+		if lb := e.merged(e.legacy, mode, Tiers); lb.Matches > b.Matches {
+			b, patch = lb, e.legacy.Patch
 		}
 	}
 	if b.Matches == 0 {
@@ -1147,6 +1159,11 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	if (a == nil || a.N < 15) && e.prev != nil {
 		if b2, a2, p2 := try(e.prev, tierSet(tf)); a2 != nil && (a == nil || a2.N > a.N) {
 			b, a, p, r.Patch = b2, a2, p2, e.prev.Patch
+		}
+	}
+	if (a == nil || a.N < 15) && e.legacy != nil && mode == "ranked" {
+		if b2, a2, p2 := try(e.legacy, Tiers); a2 != nil && (a == nil || a2.N > a.N) {
+			b, a, p, r.Patch, r.Widened = b2, a2, p2, e.legacy.Patch, true
 		}
 	}
 	r.Position = p
@@ -1437,6 +1454,11 @@ func (e *Engine) Suggest(q SuggestReq) []Suggestion {
 			b = pb
 		}
 	}
+	if b.Matches < 300 && e.legacy != nil && q.Mode == "ranked" {
+		if lb := e.merged(e.legacy, q.Mode, Tiers); lb.Matches > b.Matches {
+			b = lb
+		}
+	}
 	ex := map[int]bool{}
 	for _, c := range append(append(append([]int{}, q.Exclude...), q.Allies...), q.Enemies...) {
 		ex[c] = true
@@ -1495,20 +1517,22 @@ func (e *Engine) Suggest(q SuggestReq) []Suggestion {
 }
 
 type EngineStatus struct {
-	Enabled   bool   `json:"enabled"`
-	HasKey    bool   `json:"hasKey"`
-	Running   bool   `json:"running"`
-	Patch     string `json:"patch"`
-	Total     int    `json:"total"`
-	Session   int    `json:"session"`
-	PerHour   int    `json:"perHour"`
-	Error     string `json:"error"`
-	KeyState  string `json:"keyState"`
-	Prev      int    `json:"prev"`
-	Remote    int    `json:"remote"`
-	RemoteAt  int64  `json:"remoteAt"`
-	RemoteErr string `json:"remoteErr"`
-	HasRemote bool   `json:"hasRemote"`
+	Enabled     bool   `json:"enabled"`
+	HasKey      bool   `json:"hasKey"`
+	Running     bool   `json:"running"`
+	Patch       string `json:"patch"`
+	Total       int    `json:"total"`
+	Session     int    `json:"session"`
+	PerHour     int    `json:"perHour"`
+	Error       string `json:"error"`
+	KeyState    string `json:"keyState"`
+	Prev        int    `json:"prev"`
+	Remote      int    `json:"remote"`
+	RemoteAt    int64  `json:"remoteAt"`
+	RemoteErr   string `json:"remoteErr"`
+	HasRemote   bool   `json:"hasRemote"`
+	Legacy      int    `json:"legacy"`
+	LegacyPatch string `json:"legacyPatch"`
 }
 
 func (e *Engine) Status() EngineStatus {
@@ -1531,6 +1555,9 @@ func (e *Engine) Status() EngineStatus {
 		st.RemoteAt = e.remoteAt.Unix()
 	}
 	st.RemoteErr = e.remoteErr
+	if e.legacy != nil {
+		st.Legacy, st.LegacyPatch = e.legacy.Total, e.legacy.Patch
+	}
 	if e.running && time.Since(e.started) > time.Minute {
 		st.PerHour = int(float64(e.session) / time.Since(e.started).Hours())
 	}
@@ -1684,5 +1711,137 @@ func fixDB(db *DB) {
 		for _, a := range b.Champs {
 			fixAgg(a)
 		}
+	}
+}
+
+// ---------- archivio della versione precedente (server Cloudflare dell'amico) ----------
+
+const legacyURL = "https://better-stomp-api.better-stomp.workers.dev/stats"
+
+func convertLegacy0(raw []byte) *DB {
+	var entries []struct {
+		Patch   string            `json:"patch"`
+		Matches int               `json:"matches"`
+		Bans    map[string]int    `json:"bans"`
+		Roles   []json.RawMessage `json:"roles"`
+	}
+	if json.Unmarshal(raw, &entries) != nil || len(entries) == 0 {
+		return nil
+	}
+	db := newDB("")
+	b := newBucket()
+	db.Buckets["ranked|ALL"] = b
+	var patches []string
+	for _, en := range entries {
+		patches = append(patches, en.Patch)
+		b.Matches += en.Matches
+		db.Total += en.Matches
+		for k, v := range en.Bans {
+			c, _ := strconv.Atoi(k)
+			b.Bans[c] += v
+		}
+		for _, rr := range en.Roles {
+			var row []json.RawMessage
+			if json.Unmarshal(rr, &row) != nil || len(row) < 5 {
+				continue
+			}
+			var champ, games, wins int
+			var role string
+			json.Unmarshal(row[0], &champ)
+			json.Unmarshal(row[1], &role)
+			json.Unmarshal(row[2], &games)
+			json.Unmarshal(row[3], &wins)
+			var det struct {
+				I map[string][2]int `json:"i"`
+				R map[string][2]int `json:"r"`
+				S map[string][2]int `json:"s"`
+				V map[string][2]int `json:"v"`
+			}
+			json.Unmarshal(row[4], &det)
+			if role == "" {
+				role = "ALL"
+			}
+			a := b.champ(champ, role)
+			a.N += games
+			a.W += wins
+			add := func(m map[int]*Stat, k int, v [2]int) {
+				st := m[k]
+				if st == nil {
+					st = &Stat{}
+					m[k] = st
+				}
+				st.N += v[0]
+				st.W += v[1]
+			}
+			for k, v := range det.I {
+				id, _ := strconv.Atoi(k)
+				if isBoots(id) {
+					add(a.Boots, id, v)
+				} else if isCompleted(id) {
+					add(a.Items, id, v)
+				}
+			}
+			for k, v := range det.S {
+				st := a.Spells[k]
+				if st == nil {
+					st = &Stat{}
+					a.Spells[k] = st
+				}
+				st.N += v[0]
+				st.W += v[1]
+			}
+			// rune "P:a,b,c,d:S:e,f" → formato attuale con frammenti predefiniti
+			for k, v := range det.R {
+				p := strings.Split(k, ":")
+				if len(p) != 4 {
+					continue
+				}
+				key := p[0] + ":" + p[2] + ":" + p[1] + "," + p[3] + ",5008,5008,5011"
+				if len(strings.Split(p[1]+","+p[3], ",")) != 6 {
+					continue
+				}
+				st := a.Runes[key]
+				if st == nil {
+					st = &Stat{}
+					a.Runes[key] = st
+				}
+				st.N += v[0]
+				st.W += v[1]
+			}
+			for k, v := range det.V {
+				id, _ := strconv.Atoi(k)
+				add(a.Lane, id, v)
+				add(a.Vs, id, v)
+			}
+		}
+	}
+	db.Patch = strings.Join(patches, "+")
+	return db
+}
+
+func legacyLoop() {
+	for !staticReady() {
+		time.Sleep(time.Second)
+	}
+	path := filepath.Join(statsDir(), "archivio.json")
+	if b, err := os.ReadFile(path); err == nil {
+		if db := convertLegacy0(b); db != nil {
+			engine.mu.Lock()
+			engine.legacy = db
+			engine.cache = map[string]cachedBucket{}
+			engine.mu.Unlock()
+		}
+	}
+	for {
+		if b, err := httpGetBytes(legacyURL); err == nil {
+			if db := convertLegacy0(b); db != nil {
+				os.WriteFile(path, b, 0o644)
+				engine.mu.Lock()
+				engine.legacy = db
+				engine.cache = map[string]cachedBucket{}
+				engine.mu.Unlock()
+			}
+		}
+		time.Sleep(time.Hour)
 	}
 }

@@ -26,12 +26,17 @@ $map = load_json('accounts.json', []);
 $key = strtolower($name . '#' . $tag);
 $puuid = $map[$key] ?? '';
 if ($puuid === '') {
-    $r = riot('https://' . regional($REGION) . '.api.riotgames.com/riot/account/v1/accounts/by-riot-id/' . rawurlencode($name) . '/' . rawurlencode($tag));
+    for ($try = 0; $try < 10; $try++) {
+        $r = riot('https://' . regional($REGION) . '.api.riotgames.com/riot/account/v1/accounts/by-riot-id/' . rawurlencode($name) . '/' . rawurlencode($tag));
+        if (empty($r['wait'])) break;
+        usleep(2000000); // limite di richieste momentaneamente pieno
+    }
     $puuid = $r['data']['puuid'] ?? '';
     if ($puuid === '') {
         save_json('state.json', $GLOBALS['STATE']);
         flock($lock, LOCK_UN);
-        echo json_encode(['champs' => [], 'total' => 0, 'pending' => 0, 'error' => 'account non trovato']);
+        $why = !empty($r['wait']) ? 'server occupato, riprovo tra poco' : (!empty($r['fatal']) ? 'chiave Riot non valida' : 'account non trovato (codice ' . ($r['error'] ?? '?') . ')');
+        echo json_encode(['champs' => [], 'total' => 0, 'pending' => 1, 'error' => $why]);
         exit;
     }
     $map[$key] = $puuid;

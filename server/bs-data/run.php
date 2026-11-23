@@ -11,6 +11,7 @@ if (!flock($lock, LOCK_EX | LOCK_NB)) exit("già in esecuzione\n");
 
 $start = microtime(true);
 $budget = 25; // secondi per esecuzione (sotto i limiti dell'hosting condiviso)
+$GLOBALS['RESERVE'] = 25; // richieste lasciate al calcolo della stagione
 $GLOBALS['STATE'] = load_json('state.json', ['tierIdx' => 0, 'pools' => [], 'hits' => [], 'calls' => 0, 'runs' => 0, 'error' => '']);
 $st = &$GLOBALS['STATE'];
 $st['runs'] = ($st['runs'] ?? 0) + 1;

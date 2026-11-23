@@ -72,6 +72,7 @@ func main() {
 	go liveLoop()
 	go engineLoop()
 	go remoteLoop()
+	go legacyLoop()
 	go patchLoop()
 	go startOverlay()
 	go startOCR()

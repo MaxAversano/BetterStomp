@@ -203,8 +203,8 @@ function renderSide(){
   const e = S.st?.engine;
   if(e){
     h += `<div class="card side-card"><div class="kicker">Motore statistiche</div>
-      ${!e.hasKey&&!e.hasRemote?`<p class="small muted">Inserisci una chiave Riot API in <a href="#/impostazioni">Impostazioni</a> per sbloccare tier list, win rate e build per rango.</p>`
-      : `<div class="row" style="margin-top:8px"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total+(e.remote||0))}</b><span class="muted small">partite · patch ${esc(e.patch||'-')}</span></div>${e.hasRemote?`<div class="tiny ${e.remoteErr?'bad':'dim'}" style="margin-top:4px">${e.remoteErr?esc(e.remoteErr):`di cui ${num(e.remote||0)} dal server`}</div>`:''}
+      ${!e.hasKey&&!e.hasRemote&&!e.legacy?`<p class="small muted">Inserisci una chiave Riot API in <a href="#/impostazioni">Impostazioni</a> per sbloccare tier list, win rate e build per rango.</p>`
+      : `<div class="row" style="margin-top:8px"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total+(e.remote||0))}</b><span class="muted small">partite · patch ${esc(e.patch||'-')}</span></div>${e.hasRemote?`<div class="tiny ${e.remoteErr?'bad':'dim'}" style="margin-top:4px">${e.remoteErr?esc(e.remoteErr):`di cui ${num(e.remote||0)} dal server`}</div>`:''}${e.legacy?`<div class="tiny dim" style="margin-top:4px">+ archivio vecchia versione: ${num(e.legacy)} partite (patch ${esc(e.legacyPatch.replace('+',', '))})</div>`:''}
          ${e.error?`<div class="small bad mt">${esc(e.error)}</div>`:''}`}</div>`;
   }
   if(el._h !== h){ put(el, h, !!el._h); el._h = h; }
