@@ -82,7 +82,7 @@ func main() {
 	for {
 		time.Sleep(3 * time.Second)
 		lp := lastPing.Load()
-		idle := lp == 0 && time.Since(start) > 3*time.Minute || lp != 0 && time.Since(time.Unix(lp, 0)) > 150*time.Second
+		idle := lp == 0 && time.Since(start) > 3*time.Minute || lp != 0 && time.Since(time.Unix(lp, 0)) > 20*time.Second
 		if !idle {
 			continue
 		}
