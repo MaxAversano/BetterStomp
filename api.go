@@ -190,8 +190,8 @@ func setupAPI(mux *http.ServeMux) {
 		if tier == "" || tier == "auto" {
 			tier = autoTier()
 		}
-		rows, matches, patch := engine.TierList(q.Get("mode"), tier, q.Get("pos"))
-		jsonOut(w, map[string]any{"rows": rows, "matches": matches, "patch": patch, "tier": tier})
+		rows, matches, patch, elo := engine.TierListN(q.Get("mode"), tier, q.Get("pos"))
+		jsonOut(w, map[string]any{"rows": rows, "matches": matches, "patch": patch, "tier": tier, "eloMatches": elo})
 	})
 
 	mux.HandleFunc("/api/champion", func(w http.ResponseWriter, r *http.Request) {

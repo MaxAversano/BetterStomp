@@ -651,7 +651,8 @@ function drawTier(soft){
       ${!e.hasKey?'<a class="btn" href="#/impostazioni">Apri impostazioni</a>':''}</div></div>`, soft);
     return;
   }
-  $('#tinfo').textContent = `${num(d.matches)} partite · patch ${d.patch} · ${d.tier.includes('+')?TIER_IT[d.tier.replace('+','')]+'+':TIER_IT[d.tier]||'Tutti i ranghi'}`;
+  const tname = d.tier.includes('+')?TIER_IT[d.tier.replace('+','')]+'+':TIER_IT[d.tier]||'Tutti i ranghi';
+  $('#tinfo').innerHTML = `${num(d.eloMatches??d.matches)} partite ${esc(tname)} nella patch ${esc(String(d.patch).split(' ')[0])}${(d.eloMatches??d.matches)<3000?` · <b class="bad">ancora pochi dati: i valori si stabilizzano oltre le 3.000 partite</b>`:''}`;
   const rows = [...d.rows];
   const k = u.tsort, dir = u.tdir||-1;
   if(k!=='score') rows.sort((a,b)=> k==='name' ? champ(a.champion).name.localeCompare(champ(b.champion).name)*-dir : (a[k]-b[k])*dir);

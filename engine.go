@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -924,6 +926,12 @@ func splitKey(k string) (int, string) {
 }
 
 func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
+	rows, n, p, _ := e.TierListN(mode, tf, pos)
+	return rows, n, p
+}
+
+// come TierList, più il numero di partite della patch attuale nell'elo scelto
+func (e *Engine) TierListN(mode, tf, pos string) ([]TierRow, int, string, int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	db := e.db
@@ -956,11 +964,13 @@ func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
 	if e.prev != nil && (db == nil || e.prev.Patch != db.Patch) {
 		addPrior(e.merged(e.prev, mode, tierSet(tf)))
 	}
-	if e.legacy != nil && mode == "ranked" {
+	// l'archivio vecchio non distingue i ranghi: lo uso solo per "tutti i ranghi",
+	// così il filtro per elo cambia davvero i risultati
+	if e.legacy != nil && mode == "ranked" && len(tierSet(tf)) == len(Tiers) {
 		addPrior(e.merged(e.legacy, mode, Tiers))
 	}
 	if b.Matches+priorM == 0 {
-		return nil, 0, patch
+		return nil, 0, patch, b.Matches
 	}
 	if b.Matches < 300 && priorM > 0 {
 		if patch != "" {
@@ -977,7 +987,7 @@ func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
 		keys[k] = true
 	}
 	totM := float64(b.Matches + priorM)
-	minGames := int(math.Max(20, totM*0.0015))
+	minGames := int(math.Max(8, totM*0.0015))
 	// partite totali per campione: un ruolo giocato raramente (es. Briar mid) non entra in classifica
 	champTot := map[int]int{}
 	for k := range keys {
@@ -1041,7 +1051,7 @@ func (e *Engine) TierList(mode, tf, pos string) ([]TierRow, int, string) {
 			rows[i].Tier = "D"
 		}
 	}
-	return rows, b.Matches + priorM, patch
+	return rows, b.Matches + priorM, patch, b.Matches
 }
 
 type RunePage struct {
@@ -1320,7 +1330,7 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 				m.merge(a2)
 			}
 		}
-		if e.legacy != nil && mode == "ranked" && r.Patch != e.legacy.Patch {
+		if e.legacy != nil && mode == "ranked" && r.Patch != e.legacy.Patch && len(tierSet(tf)) == len(Tiers) {
 			if a2 := e.merged(e.legacy, mode, Tiers).Champs[key]; a2 != nil {
 				m.merge(a2)
 			}
@@ -2144,7 +2154,13 @@ func remoteLoop() {
 			base += "/data.php"
 		}
 		u := base + "?k=" + url.QueryEscape(s.RemoteToken) + "&patch=" + url.QueryEscape(patch)
-		b, err := httpGetBytes(u)
+		// prima il file esportato direttamente (sempre aggiornato), poi data.php
+		h := sha256.Sum256([]byte(s.RemoteToken))
+		direct := strings.TrimSuffix(base, "/data.php") + "/dati_" + hex.EncodeToString(h[:])[:16] + "/export_" + patch + ".json"
+		b, err := httpGetBytes(direct)
+		if err != nil || len(b) < 2 || b[0] != '{' {
+			b, err = httpGetBytes(u)
+		}
 		if err != nil {
 			engine.mu.Lock()
 			engine.remoteErr = "server non raggiungibile: " + err.Error()
