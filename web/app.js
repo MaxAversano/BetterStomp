@@ -139,6 +139,19 @@ document.addEventListener('mousedown', e=>{
 document.addEventListener('dblclick', e=>{ if(document.body.classList.contains('frameless') && e.target.closest('header.top') && !e.target.closest('a,button,input,select')) fetch('/api/win?a=max'); });
 function sendInner(){ fetch(`/api/win?a=inner&h=${innerHeight}&d=${devicePixelRatio}`).catch(()=>{}); }
 addEventListener('resize', sendInner); setTimeout(sendInner, 300);
+// barra di caricamento dei dati OP.GG all'avvio (solo quando c'è qualcosa da scaricare)
+function syncBar(st){
+  let el = $('#syncbar');
+  const on = st && st.running && st.step!=='check';
+  if(!on){ if(el){ el.classList.add('done'); setTimeout(()=>el.remove(), 600); if(!S._syncReload){ S._syncReload=true; render(true); } } return; }
+  S._syncReload = false;
+  if(!el){ el = document.createElement('div'); el.id='syncbar'; el.innerHTML='<div class="sbtxt"></div><div class="sbtrack"><i></i></div>'; document.body.appendChild(el); }
+  const steps = {meta:'Controllo il meta delle corsie', tier:'Scarico la tier list del tuo elo', build:'Scarico build, rune e counter di ogni campione'};
+  const n = {meta:0, tier:1, build:2}[st.step] ?? 0, frac = st.total ? st.done/st.total : 0;
+  const pctAll = Math.round(((n + frac) / 3) * 100);
+  el.querySelector('.sbtxt').innerHTML = `<b>Aggiorno i dati OP.GG</b> · ${steps[st.step]||''}${st.total?` <span class="dim">${st.done}/${st.total}</span>`:''}<span class="sp"></span><b>${pctAll}%</b>`;
+  el.querySelector('.sbtrack i').style.width = pctAll+'%';
+}
 async function poll(){
   try{ S.st = await api('/api/state'); }catch(e){ return; }
   document.body.classList.toggle('frameless', !!S.st.frameless);
@@ -156,6 +169,7 @@ async function poll(){
   if(S.st.profileVer!==undefined && S._pv!==S.st.profileVer){ if(S._pv!==undefined) S._profAt=0; S._pv=S.st.profileVer; } // partita finita o nuovi dati dal server: aggiorno subito
   if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:60000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search&&!S.ui.openAnAny) render(true); maybePostGame(p); } }).finally(()=>S._profLoading=false); }
   if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
+  syncBar(S.st.opggSync);
   renderSide();
   if(route()[0]==='select') updateSelect();
   if(route()[0]==='impostazioni') updateEngineBox();

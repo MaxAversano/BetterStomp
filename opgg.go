@@ -889,9 +889,8 @@ func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error
 	}
 	opgg.mu.Lock()
 	key := opgg.keys[champ]
-	failed := time.Since(opgg.failAt) < time.Minute
 	opgg.mu.Unlock()
-	if key == "" || failed {
+	if key == "" {
 		return BuildResult{}, errors.New("op.gg non disponibile")
 	}
 	args := map[string]any{"game_mode": mode, "champion": key, "position": pos2opgg[pos], "desired_output_fields": []string{
@@ -919,9 +918,6 @@ func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error
 	v, err := opgg.call("lol_get_champion_analysis", args)
 	if err != nil {
 		log.Printf("op.gg build %s %s: %v", key, pos, err)
-		opgg.mu.Lock()
-		opgg.failAt = time.Now()
-		opgg.mu.Unlock()
 		return BuildResult{}, err
 	}
 	d := og(v, "data")
@@ -1069,19 +1065,152 @@ func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error
 	return r, nil
 }
 
-// all'avvio: controlla se i dati salvati vanno aggiornati (meta e tier list del tuo elo)
+// ---------- sincronizzazione all'avvio ----------
+// All'apertura: se i dati salvati sono della patch attuale, del tuo elo e di meno di 12 ore, si usano
+// quelli e basta. Altrimenti si scarica tutto (meta, tier list, build di ogni campione) con barra di avanzamento.
+
+type OpggSync struct {
+	Running bool   `json:"running"`
+	Step    string `json:"step"`
+	Done    int    `json:"done"`
+	Total   int    `json:"total"`
+	Error   string `json:"error,omitempty"`
+}
+
+var (
+	syncMu    sync.Mutex
+	syncState OpggSync
+)
+
+func opggSyncState() OpggSync {
+	syncMu.Lock()
+	defer syncMu.Unlock()
+	st := syncState
+	if st.Running && st.Step == "tier" { // avanzamento della tier list in corso
+		opgg.mu.Lock()
+		for _, j := range opgg.jobs {
+			if j.Busy {
+				st.Done, st.Total = j.Done, j.Total
+			}
+		}
+		opgg.mu.Unlock()
+	}
+	return st
+}
+
+func setSync(step string, done, total int) {
+	syncMu.Lock()
+	syncState = OpggSync{Running: step != "", Step: step, Done: done, Total: total}
+	syncMu.Unlock()
+}
+
 func opggWarmup() {
-	time.Sleep(5 * time.Second)
 	if getSettings().OpggOff {
 		return
 	}
-	meta, err := opgg.laneMeta()
-	if err != nil || len(meta) == 0 {
-		return
+	setSync("check", 0, 0)
+	defer setSync("", 0, 0)
+	for i := 0; i < 60 && curPatch() == ""; i++ { // aspetto di sapere la patch attuale
+		time.Sleep(time.Second)
 	}
 	ot := opggTier(autoTier())
 	if ot == "" {
 		ot = "all"
 	}
-	opgg.tierJob(ot, meta)
+	path := filepath.Join(opggDir(), "sync.json")
+	var last struct {
+		At    time.Time `json:"at"`
+		Patch string    `json:"patch"`
+		Tier  string    `json:"tier"`
+	}
+	readJSON(path, &last)
+	if last.Patch == curPatch() && last.Tier == ot && time.Since(last.At) < 12*time.Hour {
+		return // dati salvati ancora buoni: niente da scaricare
+	}
+	log.Printf("op.gg: scarico i dati aggiornati (patch %s, elo %s)", curPatch(), ot)
+	// 1) meta delle corsie
+	setSync("meta", 0, 1)
+	opgg.mu.Lock()
+	opgg.metaAt = time.Time{}
+	opgg.mu.Unlock()
+	if err := opgg.refreshMeta(); err != nil {
+		syncMu.Lock()
+		syncState.Error = err.Error()
+		syncMu.Unlock()
+		return
+	}
+	opgg.mu.Lock()
+	meta := opgg.meta
+	opgg.mu.Unlock()
+	// 2) tier list del tuo elo
+	setSync("tier", 0, 1)
+	opgg.mu.Lock()
+	j := opgg.jobs[ot]
+	if j == nil {
+		j = &opggTierJob{Tier: ot}
+		readJSON(filepath.Join(opggDir(), "tier4_"+ot+".json"), j) // intanto si vede quella salvata
+		opgg.jobs[ot] = j
+	}
+	wait := j.Busy
+	if !wait {
+		j.Busy, j.Done = true, 0
+	}
+	opgg.mu.Unlock()
+	if wait {
+		for {
+			time.Sleep(time.Second)
+			opgg.mu.Lock()
+			b := j.Busy
+			opgg.mu.Unlock()
+			if !b {
+				break
+			}
+		}
+	} else {
+		opgg.runTierJob(j, meta)
+	}
+	// 3) build di ogni campione in ogni ruolo per il tuo elo
+	type pair struct {
+		c   int
+		pos string
+	}
+	var todo []pair
+	for _, r := range meta {
+		if knownChamp(r.Champion) && (r.RoleRate >= 0.08 || r.Play >= 3000) {
+			todo = append(todo, pair{r.Champion, r.Pos})
+		}
+	}
+	tf := autoTier()
+	setSync("build", 0, len(todo))
+	ch := make(chan pair)
+	var wg sync.WaitGroup
+	var done, fails int
+	var dmu sync.Mutex
+	for w := 0; w < 5; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for p := range ch {
+				ck := fmt.Sprintf("%d|%s|%s|%s", p.c, p.pos, "ranked", opggTier(tf))
+				_, err := opggBuildFetch(p.c, p.pos, "ranked", tf, opggTier(tf), ck)
+				dmu.Lock()
+				done++
+				if err != nil {
+					fails++
+				}
+				setSync("build", done, len(todo))
+				dmu.Unlock()
+			}
+		}()
+	}
+	for _, p := range todo {
+		ch <- p
+	}
+	close(ch)
+	wg.Wait()
+	opgg.saveBuilds()
+	log.Printf("op.gg: build scaricate %d/%d", done-fails, len(todo))
+	if fails < len(todo)/3 {
+		writeJSON(path, map[string]any{"at": time.Now(), "patch": curPatch(), "tier": ot})
+	}
 }

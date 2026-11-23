@@ -55,6 +55,7 @@ func setupAPI(mux *http.ServeMux) {
 			"frameless":  isFrameless(),
 			"profileVer": profileVer.Load(),
 			"window":     windowKind(),
+			"opggSync":   opggSyncState(),
 		})
 	})
 
