@@ -153,7 +153,8 @@ async function poll(){
   if(c.phase==='ChampSelect' && S.lastPhase!=='ChampSelect' && route()[0]!=='select'){ location.hash='#/select'; }
   if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.profile=null; S.ui.forceProf=true; setTimeout(()=>{ if(route()[0]==='profilo') render(true); }, 4000); }
   S.lastPhase = c.phase;
-  if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:120000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); } }).finally(()=>S._profLoading=false); }
+  if(S.st.profileVer!==undefined && S._pv!==S.st.profileVer){ if(S._pv!==undefined) S._profAt=0; S._pv=S.st.profileVer; } // partita finita o nuovi dati dal server: aggiorno subito
+  if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:60000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search&&!S.ui.openAnAny) render(true); } }).finally(()=>S._profLoading=false); }
   if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
   renderSide();
   if(route()[0]==='select') updateSelect();
@@ -302,7 +303,10 @@ function profileTab(p){
       <button class="btn ghost sm" data-act="lookup" data-id="${esc(x.name+'#'+x.tag)}">Profilo</button></div></div>`).join('')}</div>`;
   }
   if(!p.matches?.length) return `<div class="card"><div class="empty">Nessuna partita recente.</div></div>`;
-  return p.matches.map((g,i)=>{
+  const qf = S.ui.mq||'all', shown = S.ui.mShow||20;
+  const list = p.matches.map((g,i)=>[g,i]).filter(([g])=> qf==='all' || (qf==='420'? g.queue===420 : qf==='440'? g.queue===440 : g.queue!==420 && g.queue!==440));
+  const chips = `<div class="chips mb">${[['all','Tutte'],['420','Solo/Duo'],['440','Flex'],['other','Altre']].map(([k,l])=>`<span class="chip ${qf===k?'on':''}" data-act="mq" data-q="${k}">${l}</span>`).join('')}<span class="tiny dim" style="margin-left:6px">${list.length} partite${p.seasonPending?` · altre in arrivo dal server`:''}</span></div>`;
+  return chips + list.slice(0,shown).map(([g,i])=>{
     const me = g.me, cls = g.remake?'remake':me.win?'win':'loss';
     const mins = Math.max(1,g.duration/60);
     const res = g.remake?'Remake':(me.place? me.place+'° posto' : me.win?'Vittoria':'Sconfitta');
@@ -313,7 +317,7 @@ function profileTab(p){
       <div class="items">${me.items.map(x=>x?`<img src="${iImg(x)}" title="${esc(S.items[x]?.name||'')}">`:'<span class="eslot"></span>').join('')}</div>
       <div class="row gap6"><button class="btn ghost sm" data-act="analyze" data-i="${i}">Analizza</button></div>
       <div class="analysis" id="an${i}" style="display:${S.ui.openAn?.[g.id]?'block':'none'}">${S.ui.openAn?.[g.id]?analysisHTML(g):''}</div></div>`;
-  }).join('');
+  }).join('') + (list.length>shown?`<div class="row mt" style="justify-content:center"><button class="btn ghost" data-act="mmore">Mostra altre ${Math.min(20,list.length-shown)} partite</button></div>`:'');
 }
 function analysisHTML(g){ return (g.analysis||[]).map(a=>`<div class="ins ${a.kind}"><span class="i">${a.kind==='good'?'✓':a.kind==='bad'?'!':'i'}</span><span>${esc(a.text)}</span></div>`).join(''); }
 function qName(q){ return {420:'Solo/Duo',440:'Flex',400:'Normale',430:'Blind',490:'Rapida',450:'ARAM',2400:'ARAM Mayhem',1700:'Arena',1710:'Arena',900:'URF',1900:'URF',0:'Personalizzata'}[q] || 'Altra modalità'; }
@@ -351,7 +355,7 @@ function drawChampGrid(soft){
 async function pageChampion(m, r, soft){
   const c = S.champList.find(x=>x.id===r[1]); if(!c){ location.hash='#/campioni'; return; }
   const key = +c.key, u = S.ui;
-  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; u.abSel=0; u.runeSel=null; u.runeTree=false; }
+  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; u.abSel=0; u.runeSel=null; u.runeTree=false; u.ksSel=undefined; u.runeSet=0; }
   u.chMode = u.chMode||u.cmode||S.settings.defaultMode||'ranked'; u.chTier = u.chTier||u.ctier||'auto';
   if(soft && !$('#chbody')) soft = false;
   if(!soft) m.innerHTML = `<div class="page"><div class="champhero"><div class="bg" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${c.id}_0.jpg')"></div>
@@ -376,7 +380,6 @@ async function pageChampion(m, r, soft){
   put($('#chsrc'), b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
   const prof = (S.profile?.season||[]).find(x=>x.champion===key) || S.profile?.champs?.find(x=>x.champion===key);
   put($('#chbody'), `<div class="card cbcard"><div class="ctitle"><h2>Build ${b.personal?'<span class="badge goldc">Personale</span>':''}</h2><span class="sp"></span>
-        <button class="btn sm" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>⇩ Importa nel client</button>
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'✎ Build personale'}</button></div>
         <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div></div>
     <div class="grid3 mt16">
@@ -412,44 +415,55 @@ function optRow(icons, o, on, act, i){
     <div class="ost"><b>${pct(o.pick ?? o.share ?? 0,1)}</b><span class="tiny dim">pick</span></div>
     <div class="ost"><b class="${o.winRate>=.5?'good':'bad'}">${pct(o.winRate,1)}</b><span class="tiny dim">${num(o.games)} p.</span></div></div>`;
 }
+const SHARD_GRID = [[5008,5005,5007],[5008,5010,5001],[5011,5013,5001]];
+function runeBoard(r){
+  if(!r || !r.perks?.length) return `<div class="muted small">Nessuna pagina disponibile.</div>`;
+  const p = r.perks, img = (x,on,cls='') => `<img class="${on?'on':''} ${cls}" src="https://ddragon.leagueoflegends.com/cdn/img/${x.icon}" title="${esc(x.name)}">`;
+  const pr = S.style[r.primary], se = S.style[r.secondary];
+  const prim = pr ? pr.slots.map((sl,i)=>`<div class="rb-row ${i===0?'ks':''}">${sl.runes.map(x=>img(x,p.slice(0,4).includes(x.id))).join('')}</div>`).join('') : '';
+  const sec = se ? se.slots.slice(1).map(sl=>`<div class="rb-row">${sl.runes.map(x=>img(x,p.slice(4,6).includes(x.id))).join('')}</div>`).join('') : '';
+  const sh = SHARD_GRID.map((row,i)=>`<div class="rb-row sh">${row.map(id=>`<img class="${p[6+i]===id?'on':''}" src="${pImg(id)}" title="${esc(SHARDS[id]?.[0]||'')}" onerror="this.style.visibility='hidden'">`).join('')}</div>`).join('');
+  return `<div class="rboard"><div class="rb-col">${prim}</div><div class="rb-col">${sec}<div class="rb-sh">${sh}</div></div></div>`;
+}
 function champBuildView(b0, variant){
   const vs = (!b0.personal && b0.variants) || [];
   const v = vs[variant];
   const b = v ? {...b0, core:v.core, situational:v.situational} : b0;
-  const wr = b0.itemWR || {}, N = b0.buildGames || b0.games || 1;
-  const kimg = id => id ? `<img class="ks" src="${pImg(id)}" title="${esc(S.perk[id]?.name||'')}">` : '';
+  const wr = b0.itemWR || {};
   const iimg = (id, c='') => `<img class="${c}" src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`;
-  const tabs = vs.length>1 ? `<div class="vtabs">${vs.map((x,i)=>`<button class="vtab ${i===variant?'on':''}" data-act="variant" data-i="${i}">
-      <div class="vtop">${kimg(x.keystone)}<span class="vn">${esc(x.label||('Build '+(i+1)))}</span></div>
-      <div class="vimgs">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>iimg(id)).join('')}</div>
-      <div class="vfoot"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)} WR</b><span class="tiny dim">${num(x.games)} partite</span></div></button>`).join('')}</div>` : '';
-  const sec = (t, info, body) => `<div class="cbsec"><div class="cbh"><span>${t}</span>${info?`<span class="tiny dim">${info}</span>`:''}</div>${body}</div>`;
-  // rune: pagina della build scelta, oppure una delle più usate cliccata
+  // ---- rune: keystone in alto, albero completo, set in basso (come onetricks.gg)
+  const kss = (b0.runeKeystones || []).filter(o=>o.pick>=0.01);
   const pages = b0.runePages || [];
-  const rsel = S.ui.runeSel;
-  const r = (rsel!=null && pages[rsel]) || v?.runes || b0.runes;
+  const ksSel = S.ui.ksSel ?? (v?.keystone || kss[0]?.ids[0]);
+  const ksPages = pages.filter(p=>p.perks[0]===ksSel).slice(0,4);
+  const totKs = ksPages.reduce((a,p)=>a+p.games,0) || 1;
+  const setSel = Math.min(S.ui.runeSet||0, Math.max(0,ksPages.length-1));
+  const r = ksPages[setSel] || v?.runes || b0.runes;
+  const runeCard = `<div class="cbsec ot"><div class="cbh"><span>Rune</span><button class="btn xs" data-act="imprunes">⇩ Importa rune</button></div>
+    ${kss.length?`<div class="kschips">${kss.map(o=>`<button class="kschip ${o.ids[0]===ksSel?'on':''}" data-act="kssel" data-k="${o.ids[0]}"><img src="${pImg(o.ids[0])}"><b>${pct(o.pick,0)}</b></button>`).join('')}
+      <span class="tiny dim" style="margin-left:auto">${r?.games?`${pct(r.winRate)} WR · ${num(r.games)} partite`:''}</span></div>`:''}
+    ${runeBoard(r)}
+    ${ksPages.length>1?`<div class="rsets">${ksPages.map((p,i)=>`<button class="rset ${i===setSel?'on':''}" data-act="runeset" data-i="${i}"><span>Set ${i+1}:</span><img src="${pImg(p.perks[0])}"><img class="st" src="${stImg(p.secondary)}"><i style="width:${Math.round(p.games/totKs*100)}%"></i></button>`).join('')}</div>`:''}</div>`;
+  // ---- oggetti
+  const tabs = vs.length>1 ? `<div class="isets">${vs.map((x,i)=>`<button class="iset ${i===variant?'on':''}" data-act="variant" data-i="${i}"><span class="tiny dim">Build ${i+1}</span><div class="row gap4">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>iimg(id)).join('')}</div><span class="tiny"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)}</b> <span class="dim">· ${num(x.games)}</span></span></button>`).join('')}</div>` : '';
   const core = (b.core||[]).filter(id=>!(S.items[id]?.tags||[]).includes('Boots')).slice(0,6);
-  const bootsId = (b.core||[]).find(id=>(S.items[id]?.tags||[]).includes('Boots'));
-  const after = (b.core||[]).slice(0).concat(b.situational||[]).filter((id,i,a)=>id && a.indexOf(id)===i && !core.includes(id) && id!==bootsId).slice(0,8);
-  const left = `
-    ${(b0.startSets||[]).length?sec('Oggetti iniziali','', `<div class="olist">${b0.startSets.map((o,i)=>optRow(o.ids.map(id=>iimg(id)).join(''), o, i===0)).join('')}</div>`):''}
-    ${sec('Percorso build', v?`${pct(v.winRate)} WR · ${num(v.games)} partite`:'', `<div class="ipath">
-        ${bootsId?`${itCell(bootsId,wr[bootsId],'big')}<span class="parr">·</span>`:''}
-        ${core.length?core.map((id,i)=>`${i?'<span class="parr">›</span>':''}${itCell(id,wr[id],'big')}`).join(''):'<span class="small dim">Nessuna build statistica ancora: creane una personale con “Build personale”.</span>'}</div>
-        ${after.length?`<div class="cbh mt12"><span>Poi, in base alla partita</span></div><div class="isit">${after.map(id=>itCell(id,wr[id])).join('')}</div>`:''}`)}
-    ${(b0.itemsList||[]).length?sec('Oggetti popolari', `su ${num(N)} partite`, `
-        ${(b0.bootsList||[]).length?`<div class="tiny dim mb6">Stivali</div><div class="pop">${b0.bootsList.map(o=>popCell(o)).join('')}</div>`:''}
-        <div class="tiny dim mb6 mt12">Leggendari</div><div class="pop">${b0.itemsList.map(o=>popCell(o)).join('')}</div>`):''}`;
-  const right = `
-    ${sec('Rune', r?.games?`${pct(r.winRate)} WR · ${num(r.games)} partite`:'', runesCompact(r)
-      +(r?`<div class="row gap6 mt8 wrap"><button class="btn ghost xs" data-act="runetree">${S.ui.runeTree?'Nascondi albero':'Albero completo'}</button><button class="btn ghost xs" data-act="saverunes">Salva come personali</button></div>`:'')
-      +(S.ui.runeTree&&r?`<div class="mt8">${runesHTML(r)}</div>`:'')
-      +(pages.length>1?`<div class="cbh mt12"><span>Pagine più usate</span></div><div class="olist">${pages.map((p,i)=>optRow(`${kimg(p.perks[0])}${p.perks.slice(1,4).map(x=>`<img class="rsm" src="${pImg(x)}">`).join('')}<img class="rsm st" src="${stImg(p.secondary)}">`, {pick:p.games/N, winRate:p.winRate, games:p.games}, (rsel!=null?rsel===i:false), 'runesel', i)).join('')}</div>`:''))}
-    ${(b0.spellSets||[]).length?sec('Incantesimi','', `<div class="olist">${b0.spellSets.map((o,i)=>optRow(o.ids.map(s=>`<img src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join(''), o, i===0)).join('')}</div>`):''}
-    ${sec('Abilità', b0.skillFirst?`primi livelli ${b0.skillFirst.split('').join(' ')}`:'', `${(b0.skillOrders||[]).length?`<div class="olist">${b0.skillOrders.map((o,i)=>optRow(`<div class="skprio">${o.key.split('>').map((k,j)=>`${j?'<span class="arr">›</span>':''}<span class="skey k${k}">${k}</span>`).join('')}</div>`, o, i===0)).join('')}</div>`:''}
-      <div class="mt12">${skillGridHTML(b0.skillSeq)}</div>`)}`;
-  return `${tabs}<div class="otgrid"><div class="col">${left}</div><div class="col">${right}</div></div>`;
+  const after = (b.core||[]).concat(b.situational||[]).filter((id,i,a)=>id && a.indexOf(id)===i && !core.includes(id) && !(S.items[id]?.tags||[]).includes('Boots')).slice(0,8);
+  const optRows = (list, icons) => `<div class="olist">${list.map((o,i)=>optRow(icons(o), o, i===0)).join('')}</div>`;
+  const itemCard = `<div class="cbsec ot"><div class="cbh"><span>Oggetti</span><button class="btn xs" data-act="impitems">⇩ Importa oggetti</button></div>
+    ${(b0.startSets||[]).length?`<div class="sublbl">Inizio</div>${optRows(b0.startSets.slice(0,2), o=>o.ids.map(id=>iimg(id)).join(''))}`:''}
+    <div class="sublbl">Build principale</div>${tabs}
+    <div class="ipath">${core.length?core.map((id,i)=>`${i?'<span class="parr">›</span>':''}${itCell(id,wr[id],'big')}`).join(''):'<span class="small dim">Ancora poche partite per questo filtro.</span>'}</div>
+    ${(b0.bootsList||[]).length?`<div class="sublbl">Stivali</div><div class="pop">${b0.bootsList.map(o=>popCell(o)).join('')}</div>`:''}
+    ${after.length?`<div class="sublbl">Poi, in base alla partita</div><div class="isit">${after.map(id=>itCell(id,wr[id])).join('')}</div>`:''}</div>`;
+  // ---- incantesimi e abilità
+  const skCard = `<div class="cbsec ot"><div class="cbh"><span>Incantesimi e abilità</span></div>
+    ${(b0.spellSets||[]).length?optRows(b0.spellSets.slice(0,2), o=>o.ids.map(s=>`<img src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join('')):''}
+    ${(b0.skillOrders||[]).length?`<div class="sublbl">Priorità</div>`+optRows(b0.skillOrders.slice(0,2), o=>`<div class="skprio">${o.key.split('>').map((k,j)=>`${j?'<span class="arr">›</span>':''}<span class="skey k${k}">${k}</span>`).join('')}</div>`):''}
+    <div class="mt12">${skillGridHTML(b0.skillSeq)}</div></div>`;
+  return `<div class="impbar"><button class="btn" data-act="import">⇩ Importa tutto nel client</button><span class="tiny dim">rune, incantesimi e oggetti della build e del set selezionati</span></div>
+    <div class="otgrid"><div class="col">${runeCard}${skCard}</div><div class="col">${itemCard}</div></div>`;
 }
+function curRunes(){ const b0=S.ui.chData?.build; if(!b0) return null; const v=(b0.variants||[])[S.ui.variant||0]; const ks=S.ui.ksSel ?? (v?.keystone || b0.runeKeystones?.[0]?.ids[0]); const pg=(b0.runePages||[]).filter(p=>p.perks[0]===ks).slice(0,4); return pg[Math.min(S.ui.runeSet||0,Math.max(0,pg.length-1))] || v?.runes || b0.runes; }
 function popCell(o){
   const id = o.ids[0];
   return `<div class="popc" title="${esc(S.items[id]?.name||'')}"><img src="${iImg(id)}"><b>${pct(o.pick,0)}</b><span class="${o.winRate>=.5?'good':'bad'}">${pct(o.winRate,0)}</span></div>`;
@@ -862,8 +876,8 @@ async function drawOverlayPreview(){
     if(w.card){ const c=w.card, ci=c.champ?`${DD}${S.v}/img/champion/${c.champ}.png`:'';
       const objIc = n=>{ n=n.toLowerCase(); return n.includes('drag')?['🔥','#FF8A3D']:n.includes('baron')||n.includes('barone')?['👑','#A77BFF']:n.includes('atakhan')?['☠','#FF5C5C']:['◉','#B48CFF']; };
       h += `<div class="ow2 bz ovcard" data-key="${w.key||''}" style="${pos};width:${px(200)};border-radius:${px(14)};padding:${px(14)};font-size:${px(12)}">
-        <div class="r1" style="gap:${px(14)}"><img src="${ci}" style="width:${px(54)};height:${px(54)}"><div><b style="font-size:${px(13)}">KDA</b><div style="font-size:${px(17)};font-weight:800">${esc(c.kda)}</div></div></div>
-        <div style="margin:${px(10)} 0 0 ${px(14)}"><b style="font-size:${px(13)}">CS</b><div class="r1" style="justify-content:space-between"><b style="font-size:${px(18)};color:${c.csColor}">${esc(c.cs)}</b><span style="color:#8C93A3;font-size:${px(10.5)}">${esc(c.csSub)}</span></div></div>
+        <div style="margin-left:${px(14)}"><b style="font-size:${px(13)}">KDA</b><div style="font-size:${px(18)};font-weight:800">${esc(c.kda)}</div></div>
+        <div style="margin:${px(8)} 0 0 ${px(14)}"><b style="font-size:${px(13)}">CS</b><div class="r1" style="justify-content:space-between"><b style="font-size:${px(18)};color:${c.csColor}">${esc(c.cs)}</b><span style="color:#8C93A3;font-size:${px(10.5)}">${esc(c.csSub)}</span></div></div>
         ${(c.rows||[]).map(l=>`<div class="ln" style="height:${px(20)};padding-left:${px(14)}"><span style="color:#8C93A3;font-weight:700">${esc(l.text)}</span><span><b style="color:${l.color}">${esc(l.right)}</b>${l.extra?`<span class="ex"> / ${esc(l.extra)}</span>`:''}</span></div>`).join('')}
         ${(c.objs||[]).length?`<div class="sepl" style="margin:${px(10)} 0"></div>`+c.objs.map(o=>{const [s,col]=objIc(o.text); return `<div class="r1" style="gap:${px(12)};height:${px(44)}"><span class="oi" style="width:${px(34)};height:${px(34)};border-color:${col};color:${col};font-size:${px(16)}">${s}</span><div><b style="font-size:${px(12)}">${esc(o.text)}</b><div style="font-size:${px(15)};font-weight:800;color:${o.color}">${esc(o.right)}</div></div></div>`}).join(''):''}</div>`;
       continue; }
@@ -1047,7 +1061,7 @@ const actions = {
   chpos(t){ S.ui.chPos=t.dataset.p; render(); },
   tpos(t){ S.ui.tpos=t.dataset.p; render(); },
   tsort(t){ const k=t.dataset.k; if(S.ui.tsort===k) S.ui.tdir=-(S.ui.tdir||-1); else { S.ui.tsort=k; S.ui.tdir=k==='name'?1:-1; } drawTier(); },
-  async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:true,spells:true,items:true,variant:S.ui.variant||0}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
+  async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:false,spells:true,items:true,variant:S.ui.variant||0}); const rr=curRunes(); if(rr) await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,runes:true,spells:false,items:false,custom:{runes:rr}}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
   async selimport(){ const b=S.ui.selBuild; if(!b) return; const pk=S.ui.selPick||{t:'var',i:0};
     const body={champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true,variant:pk.t==='var'?pk.i:0};
     if(pk.t==='pro'){ const v=selView(S.ui.selData); body.custom={runes:v.runes,spells:v.spells,starting:v.starting,core:v.core,situational:v.situational}; }
@@ -1060,10 +1074,16 @@ const actions = {
   sidemore(t){ S.ui.sideMore=S.ui.sideMore||{}; S.ui.sideMore[t.dataset.k]=!S.ui.sideMore[t.dataset.k]; $('#side')._h=''; renderSide(); },
   addpro(){ const l=[...(S.settings.proPlayers||[]),{label:'',riotId:'',region:S.settings.region}]; setSetting('proPlayers',l); drawProList(); },
   delpro(t){ const l=[...(S.settings.proPlayers||[])]; l.splice(+t.dataset.i,1); setSetting('proPlayers',l); drawProList(); },
+  mq(t){ S.ui.mq=t.dataset.q; S.ui.mShow=20; render(true); },
+  mmore(){ S.ui.mShow=(S.ui.mShow||20)+20; render(true); },
+  kssel(t){ S.ui.ksSel=+t.dataset.k; S.ui.runeSet=0; refreshEditor(); },
+  runeset(t){ S.ui.runeSet=+t.dataset.i; refreshEditor(); },
+  async imprunes(){ const rr=curRunes(); if(!rr) return toast('Nessuna pagina'); try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:S.ui.chData.build.position,runes:true,spells:false,items:false,custom:{runes:rr}}); toast(r.message||'Rune importate'); }catch(e){ toast(e.message); } },
+  async impitems(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:false,spells:false,items:true,variant:S.ui.variant||0}); toast(r.message||'Oggetti importati'); }catch(e){ toast(e.message); } },
   runesel(t){ const i=+t.dataset.i; S.ui.runeSel = S.ui.runeSel===i?null:i; refreshEditor(); },
   runetree(){ S.ui.runeTree=!S.ui.runeTree; refreshEditor(); },
   abtab(t){ S.ui.abSel=+t.dataset.i; const d=S.ui.chDetail?.d; if(d) t.closest('.card').innerHTML='<h2>Abilità</h2>'+abilitiesHTML(d.data[S.ui.chDetail.id]); },
-  variant(t){ S.ui.runeSel=null; S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
+  variant(t){ S.ui.runeSel=null; S.ui.ksSel=undefined; S.ui.runeSet=0; S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
   editbuild(){ S.ui.editing=!S.ui.editing; S.ui.edit=null; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.hasPersonal?S.ui.chData.personal:null, S.ui.variant, 'variant');
     document.querySelector('[data-act=editbuild]').textContent = S.ui.editing?'Chiudi editor':'✎ Build personale'; },
   pickitem(t,e){ if(e.target.closest('.x')) return; itemPicker(id=>{ const b=t.dataset.b, i=+t.dataset.i; const arr=S.ui.edit[b]; arr[i]=id; S.ui.edit[b]=arr.map(x=>x||0); refreshEditor(); }); },

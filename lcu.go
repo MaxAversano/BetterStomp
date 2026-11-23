@@ -388,7 +388,8 @@ func lcuLoop() {
 			if phase == "EndOfGame" || phase == "Lobby" {
 				if phase == "EndOfGame" {
 					profMu.Lock()
-					delete(profCache, "me") // la partita appena finita compare subito nel profilo
+					delete(profCache, "me")
+					profileVer.Add(1) // la partita appena finita compare subito nel profilo
 					profMu.Unlock()
 				}
 				lastImported = ""

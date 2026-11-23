@@ -1099,49 +1099,50 @@ type BuildVariant struct {
 }
 
 type BuildResult struct {
-	BuildGames  int             `json:"buildGames"`
-	SkillSeq    string          `json:"skillSeq"`
-	SkillSeqWR  float64         `json:"skillSeqWR"`
-	SkillSeqN   int             `json:"skillSeqN"`
-	ProGames    []ProGame       `json:"proGames"`
-	Champion    int             `json:"champion"`
-	Position    string          `json:"position"`
-	Positions   []PosShare      `json:"positions"`
-	Mode        string          `json:"mode"`
-	Tier        string          `json:"tier"`
-	Patch       string          `json:"patch"`
-	Games       int             `json:"games"`
-	Matches     int             `json:"matches"`
-	WinRate     float64         `json:"winRate"`
-	PickRate    float64         `json:"pickRate"`
-	BanRate     float64         `json:"banRate"`
-	TierLabel   string          `json:"tierLabel"`
-	KDA         [3]float64      `json:"kda"`
-	CSMin       float64         `json:"csMin"`
-	Runes       *RunePage       `json:"runes"`
-	RunesAlt    *RunePage       `json:"runesAlt"`
-	Spells      []int           `json:"spells"`
-	SpellsWR    float64         `json:"spellsWR"`
-	Starting    []int           `json:"starting"`
-	Core        []int           `json:"core"`
-	Situational []int           `json:"situational"`
-	ItemWR      map[int]float64 `json:"itemWR"`
-	Skills      string          `json:"skills"`
-	SkillFirst  string          `json:"skillFirst"`
-	Best        []Pair          `json:"best"`
-	Worst       []Pair          `json:"worst"`
-	Synergy     []Pair          `json:"synergy"`
-	Variants    []BuildVariant  `json:"variants"`
-	Variant     int             `json:"variant"`
-	Source      string          `json:"source"`
-	Personal    bool            `json:"personal"`
-	Widened     bool            `json:"widened"`
-	StartSets   []Opt           `json:"startSets"`
-	SpellSets   []Opt           `json:"spellSets"`
-	SkillOrders []Opt           `json:"skillOrders"`
-	BootsList   []Opt           `json:"bootsList"`
-	ItemsList   []Opt           `json:"itemsList"`
-	RunePages   []*RunePage     `json:"runePages"`
+	BuildGames    int             `json:"buildGames"`
+	SkillSeq      string          `json:"skillSeq"`
+	SkillSeqWR    float64         `json:"skillSeqWR"`
+	SkillSeqN     int             `json:"skillSeqN"`
+	ProGames      []ProGame       `json:"proGames"`
+	Champion      int             `json:"champion"`
+	Position      string          `json:"position"`
+	Positions     []PosShare      `json:"positions"`
+	Mode          string          `json:"mode"`
+	Tier          string          `json:"tier"`
+	Patch         string          `json:"patch"`
+	Games         int             `json:"games"`
+	Matches       int             `json:"matches"`
+	WinRate       float64         `json:"winRate"`
+	PickRate      float64         `json:"pickRate"`
+	BanRate       float64         `json:"banRate"`
+	TierLabel     string          `json:"tierLabel"`
+	KDA           [3]float64      `json:"kda"`
+	CSMin         float64         `json:"csMin"`
+	Runes         *RunePage       `json:"runes"`
+	RunesAlt      *RunePage       `json:"runesAlt"`
+	Spells        []int           `json:"spells"`
+	SpellsWR      float64         `json:"spellsWR"`
+	Starting      []int           `json:"starting"`
+	Core          []int           `json:"core"`
+	Situational   []int           `json:"situational"`
+	ItemWR        map[int]float64 `json:"itemWR"`
+	Skills        string          `json:"skills"`
+	SkillFirst    string          `json:"skillFirst"`
+	Best          []Pair          `json:"best"`
+	Worst         []Pair          `json:"worst"`
+	Synergy       []Pair          `json:"synergy"`
+	Variants      []BuildVariant  `json:"variants"`
+	Variant       int             `json:"variant"`
+	Source        string          `json:"source"`
+	Personal      bool            `json:"personal"`
+	Widened       bool            `json:"widened"`
+	StartSets     []Opt           `json:"startSets"`
+	SpellSets     []Opt           `json:"spellSets"`
+	SkillOrders   []Opt           `json:"skillOrders"`
+	BootsList     []Opt           `json:"bootsList"`
+	ItemsList     []Opt           `json:"itemsList"`
+	RunePages     []*RunePage     `json:"runePages"`
+	RuneKeystones []Opt           `json:"runeKeystones"`
 }
 
 func topS(m map[string]*Stat, min int) (string, *Stat) {
@@ -1375,7 +1376,18 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	r.SpellSets = topOpts(a.Spells, 0, 3, 1, true)
 	r.BootsList = itemOpts(a.Boots, a.N, 4, 2)
 	r.ItemsList = itemOpts(a.Items, a.N, 16, 2)
-	for _, o := range topOpts(a.Runes, a.N, 4, min, false) {
+	ksAgg := map[string]*Stat{}
+	for k, v := range a.Runes {
+		if pg := parseRuneKey(k); pg != nil {
+			kk := strconv.Itoa(pg.Perks[0])
+			if ksAgg[kk] == nil {
+				ksAgg[kk] = &Stat{}
+			}
+			ksAgg[kk].merge(v)
+		}
+	}
+	r.RuneKeystones = topOpts(ksAgg, 0, 5, 1, true)
+	for _, o := range topOpts(a.Runes, a.N, 16, 1, false) {
 		if pg := parseRuneKey(o.Key); pg != nil {
 			pg.Games, pg.WinRate, pg.Source = o.Games, o.WinRate, "Statistiche BetterStomp"
 			r.RunePages = append(r.RunePages, pg)

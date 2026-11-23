@@ -61,9 +61,29 @@ if (time() - $p['idsAt'] > 600) {
     if ($ids) $p['ids'] = array_values(array_unique(array_merge($ids, $p['ids'])));
 }
 
-// legge le partite non ancora analizzate finché c'è tempo
+// riassunto di una partita (per la lista partite dell'app, unita a quelle del client)
+function game_summary($m) {
+    $i = $m['info'];
+    $g = ['id' => $m['metadata']['matchId'], 'q' => $i['queueId'] ?? 0, 'mode' => $i['gameMode'] ?? '', 'start' => $i['gameCreation'] ?? 0,
+        'dur' => $i['gameDuration'] ?? 0, 'remake' => false, 'parts' => []];
+    foreach ($i['participants'] as $pt) {
+        if (!empty($pt['gameEndedInEarlySurrender'])) $g['remake'] = true;
+        $g['parts'][] = ['puuid' => $pt['puuid'], 'name' => ($pt['riotIdGameName'] ?? '') !== '' ? $pt['riotIdGameName'] : ($pt['summonerName'] ?? ''),
+            'tag' => $pt['riotIdTagline'] ?? '', 'champ' => $pt['championId'], 'team' => $pt['teamId'], 'pos' => $pt['teamPosition'] ?? '',
+            'k' => $pt['kills'], 'd' => $pt['deaths'], 'a' => $pt['assists'], 'cs' => $pt['totalMinionsKilled'] + $pt['neutralMinionsKilled'],
+            'gold' => $pt['goldEarned'], 'dmg' => $pt['totalDamageDealtToChampions'], 'vision' => $pt['visionScore'] ?? 0,
+            'items' => [$pt['item0'], $pt['item1'], $pt['item2'], $pt['item3'], $pt['item4'], $pt['item5'], $pt['item6']],
+            'spells' => [$pt['summoner1Id'], $pt['summoner2Id']], 'level' => $pt['champLevel'], 'win' => !empty($pt['win']), 'icon' => $pt['profileIcon'] ?? 0];
+    }
+    return $g;
+}
+
+// legge le partite non ancora analizzate finché c'è tempo (le più recenti prima)
+if (!isset($p['games'])) $p['games'] = [];
 foreach ($p['ids'] as $id) {
-    if (isset($p['done'][$id])) continue;
+    $need = !isset($p['done'][$id]);
+    $needSum = !isset($p['games'][$id]) && !isset($p['short'][$id]);
+    if (!$need && !$needSum) continue;
     if (microtime(true) - $start > 22) break;
     $r = riot($reg . '/lol/match/v5/matches/' . $id);
     while (!empty($r['wait']) && microtime(true) - $start < 22) { // limite pieno: aspetto e riprovo
@@ -71,9 +91,12 @@ foreach ($p['ids'] as $id) {
         $r = riot($reg . '/lol/match/v5/matches/' . $id);
     }
     if (!empty($r['wait']) || !empty($r['fatal'])) break;
-    $p['done'][$id] = 1;
     $m = $r['data'] ?? null;
-    if (!$m || ($m['info']['gameDuration'] ?? 0) < 300) continue;
+    if (!$m) { $p['done'][$id] = 1; $p['short'][$id] = 1; continue; }
+    $p['games'][$id] = game_summary($m);
+    if (!$need) continue;
+    $p['done'][$id] = 1;
+    if (($m['info']['gameDuration'] ?? 0) < 300) continue;
     foreach ($m['info']['participants'] as $pt) {
         if ($pt['puuid'] !== $puuid) continue;
         $c = (string)$pt['championId'];
@@ -100,4 +123,12 @@ foreach ($p['champs'] as $c => $a) {
 usort($out, function ($x, $y) { return $y['games'] - $x['games']; });
 $pending = 0;
 foreach ($p['ids'] as $id) if (!isset($p['done'][$id])) $pending++;
-echo json_encode(['champs' => $out, 'total' => count($p['ids']), 'pending' => $pending, 'error' => $error, 'positions' => (object)($p['pos'] ?? [])]);
+$pg = 0;
+foreach ($p['ids'] as $id) if (!isset($p['games'][$id]) && !isset($p['short'][$id])) $pg++;
+$res = ['pendingGames' => $pg, 'champs' => $out, 'total' => count($p['ids']), 'pending' => $pending, 'error' => $error, 'positions' => (object)($p['pos'] ?? []), 'puuid' => $puuid];
+if (!empty($_GET['games'])) { // partite della stagione, dalla più recente
+    $gs = array_values($p['games']);
+    usort($gs, function ($x, $y) { return $y['start'] <=> $x['start']; });
+    $res['games'] = $gs;
+}
+echo json_encode($res);

@@ -511,3 +511,37 @@ body.frameless .rz{display:block}
 .ovteams .tr{display:flex;align-items:center;border-radius:10px;padding:0 6px}
 .ovteams .tr.me{background:#232733}
 .ovteams img{border-radius:50%;border:2px solid;object-fit:cover}
+
+/* ===== build stile onetricks.gg v2 ===== */
+.impbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.cbsec.ot .cbh .btn{margin-left:auto}
+.sublbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:14px 0 8px}
+.kschips{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.kschip{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:12px;border:1px solid transparent;background:none;color:var(--text);font:inherit;cursor:pointer}
+.kschip img{width:26px;height:26px;border-radius:50%}
+.kschip:hover{background:var(--card2)}
+.kschip.on{border-color:var(--line2);background:var(--card2)}
+.rboard{display:flex;gap:28px;justify-content:center;padding:6px 0 4px}
+.rb-col{display:flex;flex-direction:column;gap:12px;align-items:center}
+.rb-row{display:flex;gap:12px;justify-content:center}
+.rb-row img{width:40px;height:40px;border-radius:50%;opacity:.28;filter:grayscale(1);transition:.15s}
+.rb-row.ks img{width:50px;height:50px}
+.rb-row img.on{opacity:1;filter:none;box-shadow:0 0 0 2px var(--a2)}
+.rb-sh{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.rb-row.sh{gap:14px}
+.rb-row.sh img{width:24px;height:24px;background:#0e1020;padding:3px}
+.rsets{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.rset{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px 12px;border-radius:12px;border:1px solid transparent;background:none;color:var(--text);font:inherit;font-weight:600;cursor:pointer}
+.rset img{width:22px;height:22px;border-radius:50%}.rset img.st{width:16px;height:16px;margin-left:-10px;margin-top:10px}
+.rset i{position:absolute;left:12px;bottom:5px;height:3px;border-radius:2px;background:var(--muted);max-width:calc(100% - 24px)}
+.rset.on{border-color:var(--line2)}.rset.on i{background:var(--text)}
+.rset:hover{background:var(--card2)}
+.isets{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+.iset{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:none;color:var(--text);font:inherit;cursor:pointer}
+.iset img{width:28px;height:28px;border-radius:7px;border:1px solid var(--line2)}
+.iset.on{background:linear-gradient(var(--bg2),var(--bg2)) padding-box,var(--grad) border-box;border:1px solid transparent}
+.gap4{gap:4px}
+.otgrid{grid-template-columns:1.1fr 1fr}
+.cbsec.ot .ipath{gap:6px}
+.cbsec.ot .ipath .parr{font-size:16px}
+.cbsec.ot .it.big,.cbsec.ot .it.big img{width:44px}.cbsec.ot .it.big img{height:44px}

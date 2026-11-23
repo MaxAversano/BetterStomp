@@ -197,12 +197,11 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 	c := w.Card
 	width := sc(200)
 	pad := sc(14)
-	portrait := sc(58)
-	topH := portrait + sc(4)
+	topH := sc(50)
 	csH := sc(46)
 	rowH := sc(20)
 	objH := sc(44)
-	h := pad + topH + sc(8) + csH + rowH*int32(len(c.Rows)) + pad
+	h := pad + topH + csH + rowH*int32(len(c.Rows)) + pad
 	if len(c.Objs) > 0 {
 		h += sc(12) + objH*int32(len(c.Objs))
 	}
@@ -217,10 +216,9 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 	left := x + pad
 	right := x + width - pad
 	cy := y + pad
-	drawPortrait(hdc, c.Champ, c.Champ, left+2, cy+2, portrait-4, rgb("#C8A85A"), k)
-	tx := left + portrait + sc(14)
-	drawText(hdc, "KDA", rect{tx, cy + sc(6), right, cy + sc(24)}, label, font(int(13*k+0.5), true), dtLeft)
-	drawText(hdc, c.KDA, rect{tx, cy + sc(26), right, cy + sc(52)}, label, font(int(17*k+0.5), true), dtLeft)
+	tx := left + sc(14)
+	drawText(hdc, "KDA", rect{tx, cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
+	drawText(hdc, c.KDA, rect{tx, cy + sc(18), right, cy + sc(46)}, label, font(int(18*k+0.5), true), dtLeft)
 	var icons []iconHit
 	if w.Icons && interactive { // lucchetto / impostazioni / chiudi solo quando l'overlay è cliccabile
 		is := sc(15)
@@ -240,7 +238,7 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 			ix -= is + sc(4)
 		}
 	}
-	cy += topH + sc(8)
+	cy += topH
 	drawText(hdc, "CS", rect{left + sc(14), cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
 	drawText(hdc, c.CS, rect{left + sc(14), cy + sc(18), left + sc(80), cy + csH}, rgb(c.CSColor), font(int(18*k+0.5), true), dtLeft)
 	drawText(hdc, c.CSSub, rect{left + sc(70), cy + sc(18), right, cy + csH}, muted, font(int(10.5*k+0.5), false), dtRight)

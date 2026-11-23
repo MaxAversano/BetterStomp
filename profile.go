@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -513,10 +514,35 @@ func ownProfile(force bool) *Profile {
 		}
 		p.Matches = append(p.Matches, convertLegacy(g, s.Puuid))
 	}
+	// stagione completa dal server (Riot API); altrimenti ultime partite del client
+	sc, pend, sok := serverSeason(s.GameName, s.TagLine, seasonStart)
+	if sok { // lista partite unica: quelle del client + tutte le Solo/Duo della stagione dal server
+		have := map[string]bool{}
+		for _, m := range p.Matches {
+			have[gameNum(m.ID)] = true
+		}
+		seasonMu.Lock()
+		games := seasonCache.games
+		seasonMu.Unlock()
+		for _, g := range games {
+			if have[gameNum(g.ID)] {
+				continue
+			}
+			for _, pt := range g.Parts {
+				if strings.EqualFold(pt.Name, s.GameName) && strings.EqualFold(pt.Tag, s.TagLine) {
+					g.Me = pt
+				}
+			}
+			if g.Me.Champ == 0 {
+				continue
+			}
+			analyze(&g)
+			p.Matches = append(p.Matches, g)
+		}
+	}
 	sort.Slice(p.Matches, func(i, j int) bool { return p.Matches[i].Start > p.Matches[j].Start })
 	computeDerived(p)
-	// stagione completa dal server (Riot API); altrimenti ultime partite del client
-	if sc, pend, ok := serverSeason(s.GameName, s.TagLine, seasonStart); ok {
+	if sok {
 		p.Season, p.SeasonPending = sc, pend
 		// ruolo principale calcolato su tutta la stagione
 		seasonMu.Lock()
@@ -754,6 +780,7 @@ var (
 	seasonCache struct {
 		positions map[string]int
 		champs    []ChampRow
+		games     []PMatch
 		pending   int
 		at        time.Time
 		ok        bool
@@ -780,7 +807,8 @@ func serverSeason(name, tag string, since int64) ([]ChampRow, int, bool) {
 			seasonBusy = false
 			seasonMu.Unlock()
 			profMu.Lock()
-			delete(profCache, "me") // al prossimo aggiornamento il profilo mostra i dati nuovi
+			delete(profCache, "me")
+			profileVer.Add(1) // al prossimo aggiornamento il profilo mostra i dati nuovi
 			profMu.Unlock()
 		}()
 	}
@@ -790,7 +818,11 @@ func serverSeason(name, tag string, since int64) ([]ChampRow, int, bool) {
 
 var seasonBusy, seasonDiskTried bool
 
+// cambia quando il profilo ha dati nuovi (fine partita, partite dal server): l'interfaccia si aggiorna subito
+var profileVer atomic.Int64
+
 type seasonDisk struct {
+	Games     []PMatch       `json:"games"`
 	Champs    []ChampRow     `json:"champs"`
 	Pending   int            `json:"pending"`
 	Positions map[string]int `json:"positions"`
@@ -817,6 +849,7 @@ func loadSeasonDisk(name, tag string) {
 		return
 	}
 	seasonCache.champs, seasonCache.pending, seasonCache.positions, seasonCache.ok = d.Champs, d.Pending, d.Positions, true
+	seasonCache.games = d.Games
 	seasonCache.at = time.Time{} // da riaggiornare subito
 }
 
@@ -828,7 +861,7 @@ func fetchServerSeason(s Settings, name, tag string, since int64) {
 	}{}
 	base := strings.TrimRight(s.RemoteURL, "/")
 	base = strings.TrimSuffix(base, "/data.php")
-	u := fmt.Sprintf("%s/player.php?k=%s&name=%s&tag=%s&since=%d", base, url.QueryEscape(s.RemoteToken), url.QueryEscape(name), url.QueryEscape(tag), since)
+	u := fmt.Sprintf("%s/player.php?games=1&k=%s&name=%s&tag=%s&since=%d", base, url.QueryEscape(s.RemoteToken), url.QueryEscape(name), url.QueryEscape(tag), since)
 	cl := &http.Client{Timeout: 50 * time.Second}
 	resp, err := cl.Get(u)
 	if err != nil {
@@ -840,18 +873,46 @@ func fetchServerSeason(s Settings, name, tag string, since int64) {
 		Pending   int            `json:"pending"`
 		Busy      bool           `json:"busy"`
 		Positions map[string]int `json:"positions"`
+		PendingG  int            `json:"pendingGames"`
+		Games     []struct {
+			ID     string  `json:"id"`
+			Q      int     `json:"q"`
+			Mode   string  `json:"mode"`
+			Start  int64   `json:"start"`
+			Dur    int     `json:"dur"`
+			Remake bool    `json:"remake"`
+			Parts  []PPart `json:"parts"`
+		} `json:"games"`
 	}
 	if resp.StatusCode != 200 || json.NewDecoder(resp.Body).Decode(&r) != nil || r.Busy {
 		return
 	}
 	_ = c
+	var games []PMatch
+	for _, g := range r.Games {
+		games = append(games, PMatch{ID: g.ID, Queue: g.Q, Mode: g.Mode, Start: g.Start, Duration: g.Dur, Remake: g.Remake, Parts: g.Parts})
+	}
+	if r.PendingG > r.Pending {
+		r.Pending = r.PendingG
+	}
 	seasonMu.Lock()
 	seasonCache.champs, seasonCache.pending, seasonCache.at, seasonCache.ok = r.Champs, r.Pending, time.Now(), true
 	seasonCache.positions = r.Positions
+	if len(games) > 0 || len(seasonCache.games) == 0 {
+		seasonCache.games = games
+	}
 	seasonMu.Unlock()
-	if b, err := json.Marshal(seasonDisk{r.Champs, r.Pending, r.Positions}); err == nil {
+	if b, err := json.Marshal(seasonDisk{games, r.Champs, r.Pending, r.Positions}); err == nil {
 		os.WriteFile(seasonFile(name, tag), b, 0o644)
 	}
+}
+
+// "EUW1_7234567890" e 7234567890 sono la stessa partita
+func gameNum(id string) string {
+	if i := strings.LastIndex(id, "_"); i >= 0 {
+		return id[i+1:]
+	}
+	return id
 }
 
 func applySeasonRoles(p *Profile, pos map[string]int) {
