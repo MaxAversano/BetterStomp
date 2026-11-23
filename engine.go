@@ -2087,6 +2087,13 @@ func (e *Engine) Benchmarks(champ int, pos, tier string) Bench {
 	} else {
 		r.KP = fb.KP
 	}
+	// parte delle partite salvate non ha oro/partecipazione: valori fuori scala → stime per elo
+	if r.GPM < 250 || r.GPM > 700 {
+		r.GPM = fb.GPM
+	}
+	if r.KP < 0.3 || r.KP > 0.85 {
+		r.KP = fb.KP
+	}
 	return r
 }
 

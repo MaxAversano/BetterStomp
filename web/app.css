@@ -545,3 +545,49 @@ body.frameless .rz{display:block}
 .cbsec.ot .ipath{gap:6px}
 .cbsec.ot .ipath .parr{font-size:16px}
 .cbsec.ot .it.big,.cbsec.ot .it.big img{width:44px}.cbsec.ot .it.big img{height:44px}
+
+/* ===== champion select v2 ===== */
+.cshead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.cshead h1{margin:0;font-size:22px}
+.banic{width:24px;height:24px;border-radius:6px;filter:grayscale(.6);opacity:.85}
+.autoimp{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);padding-left:14px;border-left:1px solid var(--line)}
+.cs3{display:grid;grid-template-columns:270px minmax(0,1fr) 250px;gap:14px;align-items:start}
+.csteam{padding:12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.csth{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:2px 4px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.csth.ally{color:#38D6FF}.csth.enemy{color:#FF5C7A}
+.csp{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:12px;cursor:pointer;border:1px solid transparent}
+.csp:hover{background:var(--card2)}
+.csp.me{background:var(--card2);border-color:rgba(56,214,255,.35)}
+.csp.opp{background:var(--card2);border-color:rgba(255,92,122,.4)}
+.cpic{width:40px;height:40px;border-radius:12px;overflow:hidden;background:var(--card2);display:grid;place-items:center;flex:none;color:var(--dim);font-weight:800}
+.cpic img{width:100%;height:100%;object-fit:cover}
+.csp .nm{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.csp .rk{text-align:right;font-size:12px;white-space:nowrap}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
+.tg{font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(62,230,160,.12);color:var(--good)}
+.tg.bad{background:rgba(255,92,122,.12);color:var(--bad)}
+.dmg{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:5px}
+.dbar{display:flex;height:6px;border-radius:4px;overflow:hidden;background:var(--line)}
+.dbar .ad{background:#FF8A3D}.dbar .ap{background:#8B6CFF}
+.adt{color:#FF8A3D}.apt{color:#A78BFF}
+.cscenter .cstool{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.cshero{padding:16px 18px}
+.bansg{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 2px;border-radius:10px;background:var(--card2)}
+@media (max-width:1250px){.cs3{grid-template-columns:230px minmax(0,1fr)}.csteam.enemy{grid-column:1}}
+.cscenter .otgrid{grid-template-columns:minmax(0,1fr)}
+.cscenter .impbar{display:none}
+.cscenter{min-width:0}
+
+/* riepilogo partita, andamento, confronto elo */
+.pggrade{font-size:28px;font-weight:900;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;padding:0 8px}
+.pglp{font-size:18px;font-weight:800;padding:6px 12px;border-radius:12px;background:var(--card2)}
+.cmp{display:grid;grid-template-columns:130px 1fr 54px 44px;align-items:center;gap:10px;padding:5px 0}
+.cbar{position:relative;height:8px;border-radius:5px;background:var(--line)}
+.cbar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}.cbar i.g{background:var(--good)}.cbar i.b{background:var(--bad)}
+.cbar em{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:2px}
+.seg.sm button{padding:5px 10px;font-size:12px}
+
+.metarow{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+.metac{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 6px;border-radius:12px;cursor:pointer;text-align:center}
+.metac:hover{background:var(--card2)}

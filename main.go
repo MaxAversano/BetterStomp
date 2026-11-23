@@ -90,7 +90,13 @@ func main() {
 	start := time.Now()
 	go framelessLoop()
 	go cleanupOldExe()
-	go openAppWindow(appURL)
+	hidden := false
+	for _, a := range os.Args[1:] {
+		hidden = hidden || a == "--nascosto"
+	}
+	if !hidden {
+		go openAppWindow(appURL)
+	}
 
 	// resta aperto finché la finestra è aperta, oppure finché c'è una partita in corso
 	// (così l'overlay continua a funzionare anche se chiudi la finestra durante il game)
@@ -102,6 +108,9 @@ func main() {
 			continue
 		}
 		if d, _ := live.snapshot(); d != nil || getClientState().Phase == "InProgress" {
+			continue
+		}
+		if getSettings().Autostart { // con l'avvio automatico resta nella barra, pronto per la prossima partita
 			continue
 		}
 		log.Printf("chiusura: finestra chiusa (ultimo ping %v)", time.Unix(lp, 0).Format("15:04:05"))

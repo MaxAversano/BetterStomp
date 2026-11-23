@@ -94,8 +94,11 @@ type Settings struct {
 	Region         string          `json:"region"`
 	RiotAPIKey     string          `json:"riotApiKey"`
 	ProPlayers     []ProPlayer     `json:"proPlayers"`
-	RemoteURL      string          `json:"remoteUrl"`   // server statistiche (es. https://www.aversano.design/bs-data/)
-	NativeFrame    bool            `json:"nativeFrame"` // usa la barra di Windows invece di quella dell'app
+	RemoteURL      string          `json:"remoteUrl"`     // server statistiche (es. https://www.aversano.design/bs-data/)
+	NativeFrame    bool            `json:"nativeFrame"`   // usa la barra di Windows invece di quella dell'app
+	Autostart      bool            `json:"autostart"`     // parte con Windows, nascosto nella barra delle applicazioni
+	Notifications  bool            `json:"notifications"` // notifiche di Windows (partita trovata, build importata…)
+	NotifSet       bool            `json:"notifSet"`
 	RemoteToken    string          `json:"remoteToken"` // codice segreto del server
 	EngineEnabled  bool            `json:"engineEnabled"`
 	AutoRunes      bool            `json:"autoRunes"`
@@ -173,6 +176,9 @@ func loadSettings() {
 	}
 	if s.Overlay.Scale <= 0 {
 		s.Overlay.Scale = 1
+	}
+	if !s.NotifSet { // notifiche di Windows attive di base
+		s.Notifications, s.NotifSet = true, true
 	}
 	if s.Overlay.PillScale <= 0 {
 		s.Overlay.PillScale = 0.7

@@ -262,6 +262,7 @@ func fetchRanked(path string) map[string]RankedQueue {
 
 func lcuLoop() {
 	lastProfile := time.Time{}
+	prevPhase := ""
 	for {
 		if !lcu.isConnected() {
 			if !lcu.discover() {
@@ -283,6 +284,10 @@ func lcuLoop() {
 		clientState.Connected = true
 		clientState.Phase = phase
 		stateMu.Unlock()
+		if phase != prevPhase {
+			onPhaseChange(prevPhase, phase)
+			prevPhase = phase
+		}
 
 		if time.Since(lastProfile) > 30*time.Second || getClientState().Summoner == nil {
 			var s Summoner
@@ -293,6 +298,7 @@ func lcuLoop() {
 				clientState.Ranked = rk
 				stateMu.Unlock()
 				lastProfile = time.Now()
+				recordLP(s.Puuid, rk)
 			}
 		}
 
@@ -387,6 +393,7 @@ func lcuLoop() {
 			stateMu.Unlock()
 			if phase == "EndOfGame" || phase == "Lobby" {
 				if phase == "EndOfGame" {
+					lastProfile = time.Time{} // rango e LP aggiornati subito dopo la partita
 					profMu.Lock()
 					delete(profCache, "me")
 					profileVer.Add(1) // la partita appena finita compare subito nel profilo
@@ -456,6 +463,22 @@ func maybeAutoImport(cs *ChampSelect) {
 	stateMu.Lock()
 	clientState.Imported = res
 	stateMu.Unlock()
+	notify("Build importata", res)
+}
+
+// notifiche e finestra automatica ai cambi di fase del client
+func onPhaseChange(prev, phase string) {
+	switch phase {
+	case "ReadyCheck":
+		notify("Partita trovata", "Accetta la partita nel client di League.")
+	case "ChampSelect":
+		// con l'app nascosta nella barra, la champion select apre da sola la finestra di aiuto
+		if !isFrameless() && getSettings().Autostart {
+			go openAppWindow(appURL + "#/select")
+		}
+	case "EndOfGame":
+		lpWatch.Store(time.Now().UnixMilli())
+	}
 }
 
 // ---------- Import di rune, incantesimi e set di oggetti ----------

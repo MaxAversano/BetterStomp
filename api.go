@@ -147,6 +147,9 @@ func setupAPI(mux *http.ServeMux) {
 			return
 		}
 		saveSettings(ns)
+		if old.Autostart != ns.Autostart {
+			go setAutostart(ns.Autostart)
+		}
 		if old.RiotAPIKey != ns.RiotAPIKey {
 			riot.setStatus("")
 		}
@@ -247,6 +250,23 @@ func setupAPI(mux *http.ServeMux) {
 			msg = importBuild(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items, q.Variant)
 		}
 		jsonOut(w, map[string]string{"message": msg})
+	})
+
+	mux.HandleFunc("/api/bench", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		jsonOut(w, engine.Benchmarks(0, q.Get("pos"), q.Get("tier")))
+	})
+
+	mux.HandleFunc("/api/lp", func(w http.ResponseWriter, r *http.Request) {
+		puuid := ""
+		if s := getClientState().Summoner; s != nil {
+			puuid = s.Puuid
+		}
+		jsonOut(w, lpHistory(puuid))
+	})
+
+	mux.HandleFunc("/api/cs/mates", func(w http.ResponseWriter, r *http.Request) {
+		jsonOut(w, champSelectMates())
 	})
 
 	mux.HandleFunc("/api/profile", func(w http.ResponseWriter, r *http.Request) {

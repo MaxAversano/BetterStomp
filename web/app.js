@@ -151,10 +151,10 @@ async function poll(){
   navSel.innerHTML = 'Champion Select' + (c.phase==='ChampSelect'?'<span class="live"></span>':'');
   // in champion select l'app si porta da sola sulla schermata di aiuto
   if(c.phase==='ChampSelect' && S.lastPhase!=='ChampSelect' && route()[0]!=='select'){ location.hash='#/select'; }
-  if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.profile=null; S.ui.forceProf=true; setTimeout(()=>{ if(route()[0]==='profilo') render(true); }, 4000); }
+  if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.ui.postAt=Date.now(); S._profAt=0; }
   S.lastPhase = c.phase;
   if(S.st.profileVer!==undefined && S._pv!==S.st.profileVer){ if(S._pv!==undefined) S._profAt=0; S._pv=S.st.profileVer; } // partita finita o nuovi dati dal server: aggiorno subito
-  if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:60000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search&&!S.ui.openAnAny) render(true); } }).finally(()=>S._profLoading=false); }
+  if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:60000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search&&!S.ui.openAnAny) render(true); maybePostGame(p); } }).finally(()=>S._profLoading=false); }
   if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
   renderSide();
   if(route()[0]==='select') updateSelect();
@@ -278,6 +278,7 @@ function profileHTML(p){
           ${p.source==='client'?`<button class="btn ghost sm" data-act="refreshprof">↻ Aggiorna</button>`:''}
         </div></div></div>
       <div class="row wrap mt">${rc('Classificata Solo/Duo',solo)}${rc('Classificata Flex',flex)}</div></div>
+    ${p.source==='client'&&!S.ui.search?`<div class="grid2 mt2">${trendCard(p)}${eloCard(p)}</div>${metaCard(p)}`:''}
     <div class="row mt2 mb"><div class="seg" id="ptabs">${tabs.map(([k,l])=>`<button data-act="ptab" data-k="${k}" class="${S.ui.ptab===k?'on':''}">${l}</button>`).join('')}</div></div>
     <div id="ptab">${profileTab(p)}</div>`;
 }
@@ -290,9 +291,16 @@ function profileTab(p){
       <div class="pts">${fmtPts(m.points)}</div><div class="tiny dim">Livello ${m.level}</div></div>`).join('')}</div>`;
   }
   if(t==='campioni'){
-    if(!p.champs?.length) return `<div class="card"><div class="empty">Nessuna partita recente.</div></div>`;
-    return `<table class="tl"><thead><tr><th>Campione</th><th>Partite</th><th>Win rate</th><th>KDA</th><th>CS/min</th></tr></thead><tbody>
-      ${p.champs.map(c=>`<tr data-act="openchamp" data-id="${champ(c.champion).id}"><td><div class="row">${ci(c.champion,'s')}<b>${esc(champ(c.champion).name)}</b></div></td>
+    const cq = S.ui.cq2||'420', cr = S.ui.cr2||'ALL';
+    const ms = (p.matches||[]).filter(m=>!m.remake && (cq==='all'||String(m.queue)===cq) && (cr==='ALL'||m.me.pos===cr));
+    const agg = {};
+    for(const m of ms){ const c = agg[m.me.champ] ||= {champion:m.me.champ,games:0,wins:0,k:0,d:0,a:0,cs:0,mins:0}; c.games++; if(m.me.win) c.wins++; c.k+=m.me.k; c.d+=m.me.d; c.a+=m.me.a; c.cs+=m.me.cs; c.mins+=m.duration/60; }
+    const rows = Object.values(agg).map(c=>({...c, kda:(c.k+c.a)/Math.max(1,c.d), csMin:c.cs/Math.max(1,c.mins)})).sort((a,b)=>b.games-a.games);
+    const filt = `<div class="row wrap gap6 mb"><div class="chips">${[['420','Solo/Duo'],['440','Flex'],['all','Tutte']].map(([k,l])=>`<span class="chip ${cq===k?'on':''}" data-act="cq2" data-k="${k}">${l}</span>`).join('')}</div>
+      <div class="chips">${['ALL','TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(k=>`<span class="chip ${cr===k?'on':''}" data-act="cr2" data-k="${k}">${POS[k]}</span>`).join('')}</div><span class="tiny dim">${ms.length} partite</span></div>`;
+    if(!rows.length) return filt+`<div class="card"><div class="empty">Nessuna partita con questi filtri.</div></div>`;
+    return filt+`<table class="tl"><thead><tr><th>Campione</th><th>Partite</th><th>Win rate</th><th>KDA</th><th>CS/min</th></tr></thead><tbody>
+      ${rows.map(c=>`<tr data-act="openchamp" data-id="${champ(c.champion).id}"><td><div class="row">${ci(c.champion,'s')}<b>${esc(champ(c.champion).name)}</b></div></td>
       <td>${c.games}</td><td class="${c.wins/c.games>=.5?'good':'bad'} b">${pct(c.wins/c.games,0)}</td><td>${c.kda.toFixed(2).replace('.',',')}</td><td>${c.csMin.toFixed(1).replace('.',',')}</td></tr>`).join('')}</tbody></table>`;
   }
   if(t==='premade'){
@@ -318,6 +326,88 @@ function profileTab(p){
       <div class="row gap6"><button class="btn ghost sm" data-act="analyze" data-i="${i}">Analizza</button></div>
       <div class="analysis" id="an${i}" style="display:${S.ui.openAn?.[g.id]?'block':'none'}">${S.ui.openAn?.[g.id]?analysisHTML(g):''}</div></div>`;
   }).join('') + (list.length>shown?`<div class="row mt" style="justify-content:center"><button class="btn ghost" data-act="mmore">Mostra altre ${Math.min(20,list.length-shown)} partite</button></div>`:'');
+}
+/* ----- riepilogo a fine partita ----- */
+async function maybePostGame(p){
+  const u = S.ui; if(!u.postAt || Date.now()-u.postAt > 5*60000) return;
+  const m = (p.matches||[]).find(x=>x.start + x.duration*1000 > u.postAt - 20*60000);
+  if(!m || u.postShown===m.id) return;
+  u.postShown = m.id; u.postAt = 0;
+  let lp = null;
+  if(m.queue===420 || m.queue===440){ try{ const h = await api('/api/lp'); const q = m.queue===420?'RANKED_SOLO_5x5':'RANKED_FLEX_SR'; const pts = h.filter(x=>x.queue===q); if(pts.length>=2 && pts.at(-1).t > m.start) lp = pts.at(-1).value - pts.at(-2).value; }catch(e){} }
+  const me = m.me, mins = Math.max(1, m.duration/60), csm = me.cs/mins;
+  const target = me.pos==='JUNGLE'?5.5:me.pos==='UTILITY'?1.5:7;
+  const kp = (()=>{ const tk = m.parts.filter(x=>x.team===me.team).reduce((a,x)=>a+x.k,0); return tk? (me.k+me.a)/tk : 0; })();
+  const grade = (()=>{ let s = 0; s += Math.min(1.2, ((me.k+me.a)/Math.max(1,me.d))/4); s += me.pos==='UTILITY'?0.5:Math.min(1.2, csm/target); s += Math.min(1, kp/0.55); s += me.win?0.3:0; const g = s/3.7; return g>=.95?'S+':g>=.85?'S':g>=.75?'A':g>=.62?'B':g>=.5?'C':'D'; })();
+  modal(m.remake?'Remake':me.win?'Vittoria':'Sconfitta', `<div class="pg">
+    <div class="row" style="gap:14px">${ci(me.champ,'l')}<div class="sp"><b style="font-size:16px">${esc(champ(me.champ).name)}</b><div class="small muted">${esc(qName(m.queue,m.mode))} · ${dur(m.duration)}</div></div>
+      <div class="pggrade">${grade}</div>${lp!==null?`<div class="pglp ${lp>=0?'good':'bad'}">${lp>=0?'+':''}${lp} LP</div>`:''}</div>
+    <div class="stats mt12"><div class="stat"><div class="k">KDA</div><div class="v">${me.k}/${me.d}/${me.a}</div></div>
+      <div class="stat"><div class="k">CS/min</div><div class="v ${me.pos==='UTILITY'||csm>=target?'good':'bad'}">${csm.toFixed(1).replace('.',',')}</div><div class="tiny dim">obiettivo ${String(target).replace('.',',')}</div></div>
+      <div class="stat"><div class="k">Partecipazione</div><div class="v">${pct(kp,0)}</div></div><div class="stat"><div class="k">Visione</div><div class="v">${me.vision}</div></div></div>
+    <div class="mt12">${analysisHTML(m)}</div></div>`);
+}
+
+/* ----- campioni forti nel tuo ruolo in questa patch ----- */
+function metaCard(p){
+  const u = S.ui, pos = p.roles?.main; if(!pos) return '';
+  if(u.metaPos!==pos && !u.metaLoading){ u.metaLoading=true; api(`/api/tierlist?mode=ranked&tier=auto&pos=`).then(d=>{ u.meta=(d.rows||[]).filter(r=>r.position===pos).slice(0,8); u.metaPos=pos; if(route()[0]==='profilo') render(true); }).finally(()=>u.metaLoading=false); }
+  if(!u.meta?.length || u.metaPos!==pos) return '';
+  const mine = new Set((p.champs||[]).map(c=>c.champion));
+  return `<div class="card mb"><div class="ctitle"><h2>I più forti in ${POS[pos]} questa patch</h2><span class="sp"></span><a class="small" href="#/tier">Tier list completa →</a></div>
+    <div class="metarow">${u.meta.map(r=>`<div class="metac" data-act="openchamp" data-id="${champ(r.champion).id}" data-pos="${r.position}">${ci(r.champion)}<b class="small">${esc(champ(r.champion).name)}</b><span class="tiny"><b class="${r.winRate>=.5?'good':'bad'}">${pct(r.winRate)}</b> ${tierBadge(r.tier)}</span>${mine.has(r.champion)?'<span class="tiny dim">lo giochi</span>':''}</div>`).join('')}</div></div>`;
+}
+
+/* ----- confronto con la media dell'elo, sulle tue Solo/Duo nel ruolo principale ----- */
+function eloCard(p){
+  const u = S.ui, pos = p.roles?.main, solo = p.ranked?.RANKED_SOLO_5x5;
+  if(!pos) return '';
+  const myTier = solo?.tier && solo.tier!=='NONE' ? solo.tier : 'GOLD';
+  const next = TIERS[Math.min(TIERS.length-1, TIERS.indexOf(myTier)+1)];
+  const tier = u.btier==='next' ? next : myTier;
+  const key = pos+'|'+tier;
+  if(u.benchKey!==key && !u.benchLoading){ u.benchLoading=true; api(`/api/bench?pos=${pos}&tier=${tier}`).then(b=>{ u.bench=b; u.benchKey=key; if(route()[0]==='profilo') render(true); }).finally(()=>u.benchLoading=false); }
+  const b = u.benchKey===key ? u.bench : null;
+  const ms = (p.matches||[]).filter(m=>m.queue===420 && !m.remake && m.me.pos===pos);
+  if(ms.length < 3 || !b) return `<div class="card mb"><div class="ctitle"><h2>Confronto con l'elo</h2></div><div class="small dim">${ms.length<3?'Servono almeno 3 Solo/Duo nel tuo ruolo principale.':'Carico le medie…'}</div></div>`;
+  let mins=0, cs=0, gold=0, k=0, d=0, a=0, kp=0;
+  for(const m of ms){ const mm=m.duration/60; mins+=mm; cs+=m.me.cs; gold+=m.me.gold; k+=m.me.k; d+=m.me.d; a+=m.me.a; const tk=m.parts.filter(x=>x.team===m.me.team).reduce((s,x)=>s+x.k,0); kp += tk?(m.me.k+m.me.a)/tk:0; }
+  const mine = {csm: cs/mins, gpm: gold/mins, kp: kp/ms.length, kda: (k+a)/Math.max(1,d)};
+  const row = (l, y, r, f) => { const ok = y>=r; const w = Math.min(100, y/(r*1.5)*100), rw = Math.min(100, r/(r*1.5)*100);
+    return `<div class="cmp"><span class="small">${l}</span><div class="cbar"><i class="${ok?'g':'b'}" style="width:${w}%"></i><em style="left:${rw}%"></em></div><b class="small ${ok?'good':'bad'}">${f(y)}</b><span class="tiny dim">/ ${f(r)}</span></div>`; };
+  const f1 = v=>v.toFixed(1).replace('.',','), f0 = v=>Math.round(v), fp = v=>pct(v,0);
+  return `<div class="card mb"><div class="ctitle"><h2>Confronto con l'elo</h2><span class="sp"></span>
+      <div class="seg sm"><button data-act="benchtier" data-k="mine" class="${u.btier!=='next'?'on':''}">${TIER_IT[myTier]}</button><button data-act="benchtier" data-k="next" class="${u.btier==='next'?'on':''}">${TIER_IT[next]}</button></div></div>
+    <div class="tiny dim mb">${POS[pos]} · ${ms.length} Solo/Duo della stagione · la tacca è la media di ${TIER_IT[tier]}</div>
+    ${pos!=='UTILITY'?row('CS al minuto', mine.csm, b.csm, f1):''}${row('Oro al minuto', mine.gpm, b.gpm, f0)}${row('Partecipazione', mine.kp, b.kp, fp)}${row('KDA', mine.kda, b.kda, f1)}</div>`;
+}
+
+/* ----- andamento: LP nel tempo, o vittorie e sconfitte delle ultime partite ----- */
+function trendCard(p){
+  const u = S.ui;
+  if(!u.lpLoaded){ u.lpLoaded = true; api('/api/lp').then(h=>{ u.lp = h; if(route()[0]==='profilo') render(true); }).catch(()=>{}); }
+  const pts = (u.lp||[]).filter(x=>x.queue==='RANKED_SOLO_5x5');
+  const W = 560, H = 120;
+  let svg = '', title = '', sub = '';
+  if(pts.length >= 2){
+    const vs = pts.map(x=>x.value), mn = Math.min(...vs), mx = Math.max(...vs), span = Math.max(50, mx-mn);
+    const xy = pts.map((x,i)=>[i/(pts.length-1)*W, H-8-((x.value-mn)/span)*(H-16)]);
+    svg = `<polyline fill="none" stroke="url(#lg)" stroke-width="2.5" points="${xy.map(a=>a.join(',')).join(' ')}"/>`;
+    const d = vs.at(-1)-vs[0];
+    title = 'Andamento LP · Solo/Duo'; sub = `<b class="${d>=0?'good':'bad'}">${d>=0?'+':''}${d} LP</b> <span class="dim">in ${pts.length-1} variazioni</span>`;
+  } else {
+    const ms = (p.matches||[]).filter(m=>m.queue===420 && !m.remake).slice(0,40).reverse();
+    if(ms.length < 3) return '';
+    let v = 0; const vals = [0, ...ms.map(m=> v += m.me.win?1:-1)];
+    const mn = Math.min(...vals), mx = Math.max(...vals), span = Math.max(4, mx-mn);
+    const xy = vals.map((x,i)=>[i/(vals.length-1)*W, H-8-((x-mn)/span)*(H-16)]);
+    const zero = H-8-((0-mn)/span)*(H-16);
+    svg = `<line x1="0" x2="${W}" y1="${zero}" y2="${zero}" stroke="var(--line2)" stroke-dasharray="4 4"/><polyline fill="none" stroke="url(#lg)" stroke-width="2.5" points="${xy.map(a=>a.join(',')).join(' ')}"/>`;
+    const w = ms.filter(m=>m.me.win).length;
+    title = `Ultime ${ms.length} Solo/Duo`; sub = `<b class="${w/ms.length>=.5?'good':'bad'}">${w}V - ${ms.length-w}S</b> <span class="dim">· i LP vengono registrati da ora in poi</span>`;
+  }
+  return `<div class="card mb"><div class="ctitle"><h2>${title}</h2><span class="sp"></span><span class="small">${sub}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px"><defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="#8B6CFF"/><stop offset="1" stop-color="#38D6FF"/></linearGradient></defs>${svg}</svg></div>`;
 }
 function analysisHTML(g){ return (g.analysis||[]).map(a=>`<div class="ins ${a.kind}"><span class="i">${a.kind==='good'?'✓':a.kind==='bad'?'!':'i'}</span><span>${esc(a.text)}</span></div>`).join(''); }
 function qName(q, mode){
@@ -577,13 +667,16 @@ function pageSelect(m, r, soft){
   if(soft && $('#selpage')){ updateSelect(true, true); return; }
   u.skind = u.skind||'matchup'; u.over = u.over||{}; u.sbuildKey=''; u.suggLoaded=false;
   u.stab = u.stab||'build'; u.vsort = u.vsort||'best'; u.selTier = u.selTier||'auto';
-  m.innerHTML = `<div class="page" id="selpage"><div class="card glow"><div class="row mb"><h1>Champion Select</h1><span class="sp"></span><span id="selphase" class="badge"></span></div>
-      <div class="teams" id="teams"></div><div class="row mt small muted" id="bans"></div></div>
-    <div class="cstool mt2" id="cstool"></div>
-    <div id="csbody" class="mt"></div>
-    <details class="card flat mt2"><summary class="b" style="cursor:pointer">Import automatico quando blocchi il campione</summary><div id="autobox"></div></details>
+  m.innerHTML = `<div class="page" id="selpage">
+    <div class="cshead"><h1>Champion Select</h1><span id="selphase" class="badge"></span><span class="sp"></span><div id="bans" class="row gap6 small"></div>
+      <label class="autoimp" title="Rune, incantesimi e oggetti entrano nel client appena blocchi il campione">Import automatico ${sw('autoAll', S.settings.autoRunes&&S.settings.autoItems&&S.settings.autoSpells)}</label></div>
+    <div class="cs3">
+      <div class="card csteam" id="allies"></div>
+      <div class="cscenter"><div class="cstool" id="cstool"></div><div id="csbody"></div></div>
+      <div class="card csteam enemy" id="enemies"></div>
+    </div>
   </div>`;
-  $('#autobox').innerHTML = autoBox(true);
+  if(!u.roleMap) api('/api/tierlist?mode=ranked&tier=ALL&pos=').then(d=>{ const best={}; for(const r of d.rows||[]){ if(r.position==='ALL') continue; if(!best[r.champion]||r.games>best[r.champion].g) best[r.champion]={p:r.position,g:r.games}; } u.roleMap=Object.fromEntries(Object.entries(best).map(([k,v])=>[k,v.p])); u.ssig=''; updateSelect(true); }).catch(()=>{});
   updateSelect(true);
 }
 pageSelect.soft = true;
@@ -606,43 +699,75 @@ function selState(){
 }
 function queueMode(q){ return {420:'ranked',440:'flex',400:'normal',430:'normal',490:'normal',450:'aram',2400:'mayhem',1700:'arena',1710:'arena',900:'urf',1900:'urf'}[q] || S.ui.smode || 'ranked'; }
 
+// compagni: rango, win rate ed etichette lette dal client (aggiornate ogni pochi secondi)
+function refreshMates(){
+  const u = S.ui, cs = S.st?.client?.champSelect;
+  if(!cs || u.matesLoading || Date.now()-(u.matesAt||0) < 6000) return;
+  u.matesLoading = true;
+  api('/api/cs/mates').then(l=>{ u.mates = l||[]; u.matesAt = Date.now(); u.ssig=''; updateSelect(true, true); }).catch(()=>{}).finally(()=>u.matesLoading=false);
+}
+function teamDamage(list){
+  let ad=0, ap=0;
+  for(const c of list){ const i = champ(c)?.info; if(!i) continue; const a=i.attack||0, m=i.magic||0; if(a+m===0) continue; ad += a/(a+m); ap += m/(a+m); }
+  return ad+ap ? ad/(ad+ap) : null;
+}
+function dmgBar(label, list){
+  const r = teamDamage(list); if(r===null) return '';
+  return `<div class="dmg"><span class="tiny dim">${label}</span><div class="dbar"><i class="ad" style="width:${Math.round(r*100)}%"></i><i class="ap" style="width:${100-Math.round(r*100)}%"></i></div><span class="tiny"><b class="adt">${Math.round(r*100)}% fisici</b> · <b class="apt">${100-Math.round(r*100)}% magici</b></span></div>`;
+}
 function updateSelect(force, soft){
   if(!$('#selpage')) return;
   const s = selState(), u = S.ui;
-  const sig = JSON.stringify([s.mine,s.theirs,s.myPos,s.mode,u.skind,u.sopp,s.cs?.bans,s.myChamp,u.stab,u.selTier]);
+  refreshMates();
+  const enemies = s.theirs.map(x=>x.champ).filter(Boolean);
+  // avversario di corsia: il nemico che di solito gioca nel tuo ruolo
+  if(!u.soppManual){ const g = enemies.find(e=>u.roleMap?.[e]===s.myPos); u.sopp = g||0; }
+  const sig = JSON.stringify([s.mine,s.theirs,s.myPos,s.mode,u.skind,u.sopp,s.cs?.bans,s.myChamp,u.stab,u.selTier,u.matesAt]);
   const c = S.st?.client;
-  $('#selphase').textContent = s.cs ? (s.cs.timer?.phase==='FINALIZATION'?'Finalizzazione':'In corso')+(s.cs.timer?.adjustedTimeLeftInPhase>0?` · ${Math.ceil(s.cs.timer.adjustedTimeLeftInPhase/1000)}s`:'') : 'Modalità manuale';
+  $('#selphase').textContent = s.cs ? (s.cs.timer?.phase==='FINALIZATION'?'Finalizzazione':s.cs.timer?.phase==='BAN_PICK'?'Ban e scelte':'In corso')+(s.cs.timer?.adjustedTimeLeftInPhase>0?` · ${Math.ceil(s.cs.timer.adjustedTimeLeftInPhase/1000)}s`:'') : 'Modalità manuale';
   if(c?.imported && c.imported!==u.lastImp){ u.lastImp=c.imported; toast(c.imported); }
   if(!force && sig===u.ssig) return;
   u.ssig = sig;
-  const pick = (p,i,side) => `<div class="pick ${p.me?'me':''}" data-act="override" data-k="${side}${i}" title="Clicca per correggere il campione">
-      <div class="p">${p.champ?`<img src="${cImg(p.champ)}">`:'?'}</div><div class="pl">${p.champ?esc(champ(p.champ).name):(side==='a'?(POS[p.pos]||'Alleato'):'Nemico')}</div></div>`;
-  put($('#teams'), `<div class="team">${s.mine.map((p,i)=>pick(p,i,'a')).join('')}</div><div class="vs">VS</div><div class="team enemy">${s.theirs.map((p,i)=>pick(p,i,'e')).join('')}</div>`, soft);
+  const mates = u.mates||[];
+  const rankTxt2 = m => m?.tier ? `${TIER_IT[m.tier]||m.tier}${['MASTER','GRANDMASTER','CHALLENGER'].includes(m.tier)?'':' '+(m.division||'')}` : 'Senza rango';
+  put($('#allies'), `<div class="csth ally">La tua squadra</div>` + s.mine.map((p,i)=>{
+      const cell = s.cs?.myTeam?.[i]?.cellId, m = mates.find(x=>x.cellId===cell);
+      const g = m ? m.wins+m.losses : 0, wr = g ? m.wins/g : 0;
+      return `<div class="csp ${p.me?'me':''}" data-act="override" data-k="a${i}" title="Clicca per correggere il campione">
+        <div class="cpic">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
+        <div class="sp" style="min-width:0"><div class="nm">${p.champ?esc(champ(p.champ).name):'<span class="dim">In scelta…</span>'} <span class="tiny dim">${POS[p.pos]||''}</span></div>
+          <div class="tiny dim ell">${esc(p.me?'Tu':(m?.name||p.name||'Alleato'))}${m?.champGames?` · ${m.champWins}V ${m.champGames-m.champWins}S col campione`:''}</div>
+          ${m?.tags?.length?`<div class="tags">${m.tags.map(t=>`<span class="tg ${/sconfitte|smurf|Mai/.test(t)?'bad':'good'}">${esc(t)}</span>`).join('')}</div>`:''}</div>
+        <div class="rk"><b style="color:${TIER_COL[m?.tier]||'var(--muted)'}">${esc(rankTxt2(m))}</b>${g?`<div class="tiny"><b class="${wr>=.5?'good':'bad'}">${pct(wr,0)}</b> <span class="dim">${g}</span></div>`:''}</div></div>`; }).join('')
+    + dmgBar('Danni', s.mine.map(x=>x.champ).filter(Boolean)), soft);
+  const b = u.selData;
+  const mu = id => [...(b?.best||[]),...(b?.worst||[])].find(x=>x.champion===id);
+  put($('#enemies'), `<div class="csth enemy">Squadra nemica</div>` + s.theirs.map((p,i)=>{ const x = p.champ && mu(p.champ), opp = p.champ && p.champ===u.sopp;
+      return `<div class="csp ${opp?'opp':''}" data-act="override" data-k="e${i}" title="Clicca per correggere il campione">
+        <div class="cpic">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
+        <div class="sp" style="min-width:0"><div class="nm">${p.champ?esc(champ(p.champ).name):'<span class="dim">Non ancora scelto</span>'}</div>
+          <div class="tiny dim">${p.champ?(POS[u.roleMap?.[p.champ]]||''):''}${opp?' · contro di te':''}</div></div>
+        ${x?`<div class="rk"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate,0)}</b><div class="tiny dim">per te</div></div>`:''}</div>`; }).join('')
+    + dmgBar('Danni', enemies), soft);
   const bans = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[])].filter(Boolean);
-  put($('#bans'), s.cs ? `Ban: <span class="bans">${bans.map(b=>`<img src="${cImg(b)}">`).join('')||'<span class="dim">nessuno</span>'}</span><span class="sp"></span><span class="dim">Clicca un ritratto per correggerlo se è rilevato male</span>`
-    : `<span>Il client non è in champion select: puoi inserire i campioni a mano cliccando sui ritratti.</span>`, soft);
-  const enemies = s.theirs.map(x=>x.champ).filter(Boolean);
-  if(u.sopp && !enemies.includes(u.sopp) && !u.soppManual) u.sopp = 0;
-  // barra strumenti stile Blitz: campione · ruolo · vs · elo · import
-  put($('#cstool'), `<div class="seg"><button data-act="stab" data-k="build" class="${u.stab==='build'?'on':''}">Build</button><button data-act="stab" data-k="sugg" class="${u.stab==='sugg'?'on':''}">Suggerimenti</button></div>
-    <button class="champbtn" data-act="override" data-k="a${s.meIdx}">${s.myChamp?`<img src="${cImg(s.myChamp)}">`:'<span class="q">?</span>'}<span>${s.myChamp?esc(champ(s.myChamp).name):'Scegli campione'}</span></button>
+  put($('#bans'), s.cs ? `<span class="dim">Ban</span>${bans.map(b=>`<img class="banic" src="${cImg(b)}" title="${esc(champ(b).name)}">`).join('')||'<span class="dim">nessuno</span>'}` : `<span class="dim">Fuori dalla champion select: clicca i ritratti per provare un matchup.</span>`, soft);
+  put($('#cstool'), `<div class="seg"><button data-act="stab" data-k="build" class="${u.stab==='build'?'on':''}">Build</button><button data-act="stab" data-k="sugg" class="${u.stab==='sugg'?'on':''}">Cosa scegliere</button></div>
     ${!s.cs?`<select data-ui="smode">${opt(MODES,s.mode)}</select>`:''}
     ${isPos(s.mode)?`<select data-ui="spos">${opt(['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(p=>[p,POS[p]]), s.myPos)}</select>`:''}
-    <span class="dim b">vs</span><select data-ui="sopp" data-num="1"><option value="0">Nessun matchup</option>${enemies.map(e=>`<option value="${e}" ${u.sopp===e?'selected':''}>${esc(champ(e).name)}</option>`).join('')}${u.sopp&&!enemies.includes(u.sopp)?`<option value="${u.sopp}" selected>${esc(champ(u.sopp).name)}</option>`:''}</select>
-    <button class="btn ghost sm" data-act="pickopp" title="Scegli l'avversario da tutti i campioni">…</button>
-    <select data-ui="selTier" title="Elo delle statistiche">${tierOptions(u.selTier)}</select>
-    <span class="sp"></span><button class="btn" data-act="selimport" ${c?.connected&&s.myChamp?'':'disabled'}>Importa${s.myChamp?' '+esc(champ(s.myChamp).name):''}</button>`, soft);
+    <span class="dim b">vs</span><select data-ui="sopp" data-num="1"><option value="0">Nessun avversario</option>${enemies.map(e=>`<option value="${e}" ${u.sopp===e?'selected':''}>${esc(champ(e).name)}</option>`).join('')}${u.sopp&&!enemies.includes(u.sopp)?`<option value="${u.sopp}" selected>${esc(champ(u.sopp).name)}</option>`:''}</select>
+    <button class="btn ghost sm" data-act="pickopp" title="Scegli l'avversario fra tutti i campioni">…</button>
+    <select data-ui="selTier" title="Elo delle statistiche">${tierOptions(u.selTier)}</select>`, soft);
   if(u.stab==='sugg'){
     if(!$('#sugg')) $('#csbody').innerHTML = `<div class="card"><div class="ctitle"><h2>Quale campione scegliere</h2><span class="sp"></span>
-      <div class="seg"><button data-act="skind" data-k="matchup" class="${u.skind==='matchup'?'on':''}">Per matchup</button><button data-act="skind" data-k="team" class="${u.skind==='team'?'on':''}">Per team comp</button></div></div><div id="sugg"></div></div>`;
+      <div class="seg"><button data-act="skind" data-k="matchup" class="${u.skind==='matchup'?'on':''}">Contro l'avversario</button><button data-act="skind" data-k="team" class="${u.skind==='team'?'on':''}">Per la squadra</button></div></div><div id="sugg"></div></div>`;
     loadSuggestions(s, soft || S.ui.suggLoaded); S.ui.suggLoaded = true;
     u.sbuildKey = '';
     return;
   }
   const bk = `${s.myChamp}|${s.myPos}|${s.mode}|${u.selTier}`;
-  if(bk!==u.sbuildKey || soft || !$('#cslist')){ const same = bk===u.sbuildKey && $('#cslist'); u.sbuildKey=bk; loadSelBuild(s, soft && same); }
+  if(bk!==u.sbuildKey || !$('#buildbox')){ u.sbuildKey=bk; loadSelBuild(s, false); }
+  else if(b) drawSelHeader(s);
 }
-
 async function loadSuggestions(s, soft){
   const u = S.ui, el = $('#sugg'); if(!el) return;
   const allies = s.mine.filter(x=>!x.me).map(x=>x.champ).filter(Boolean), enemies = s.theirs.map(x=>x.champ).filter(Boolean);
@@ -703,49 +828,28 @@ function skillGridHTML(seq){
 async function loadSelBuild(s, soft){
   const el = $('#csbody'); if(!el) return;
   const u = S.ui;
-  if(!s.myChamp){ put(el, `<div class="card"><div class="empty"><div class="big">🎯</div>Scegli (o passa sopra a) un campione: qui comparirà la build con rune, incantesimi, oggetti e ordine delle abilità, per elo e dai pro.<div class="mt"><button class="btn ghost" data-act="override" data-k="a${s.meIdx}">Scegli campione</button></div></div></div>`, soft); return; }
-  if(!soft){ el.innerHTML = `<div class="loading"><span class="spinner"></span>Preparo la build…</div>`; u.selPick = {t:'var', i:0}; }
-  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=${u.selTier}&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ if(!soft) el.innerHTML = esc(e.message); return; }
+  if(!s.myChamp){ put(el, `<div class="card"><div class="empty"><div class="big">🎯</div>Scegli (o passa sopra a) un campione: qui comparirà la build da importare con un clic.<br><span class="dim">Oppure apri "Cosa scegliere" per i campioni migliori contro il tuo avversario.</span></div></div>`, soft); return; }
+  if(!soft) el.innerHTML = `<div class="loading"><span class="spinner"></span>Preparo la build…</div>`;
+  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=${u.selTier}&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ el.innerHTML = esc(e.message); return; }
   if(!$('#csbody')) return;
   const b = d.build; u.selBuild = {champ:s.myChamp, pos:b.position||s.myPos, mode:s.mode}; u.selData = b;
-  if(u.selPick.t==='var' && u.selPick.i >= Math.max(1,(b.variants||[]).length)) u.selPick = {t:'var', i:0};
-  if(u.selPick.t==='pro' && !b.proGames?.[u.selPick.i]) u.selPick = {t:'var', i:0};
-  put(el, selBuildHTML(b, s), soft);
+  // la vista build è la stessa della pagina campione (keystone, set, import separati)
+  u.chData = d; u.chKey = s.myChamp; u.chMode = s.mode; u.variant = 0; u.ksSel = undefined; u.runeSet = 0; u.editing = false;
+  el.innerHTML = `<div class="card cshero" id="cshero"></div><div class="card cbcard mt"><div id="buildbox">${buildHTML(b, d.personal, 0, 'variant')}</div></div>`;
+  drawSelHeader(s);
+  u.ssig=''; updateSelect(true, true);
 }
-function selBuildHTML(b, s){
-  const u = S.ui, view = selView(b);
-  const tierLbl = (()=>{ const t = (u.selTier==='auto'? (S.st?.autoTier||'') : u.selTier); if(t==='ALL') return 'tutti i ranghi'; return t.includes('+') ? TIER_IT[t.replace('+','')]+'+' : (TIER_IT[t]||t); })();
-  const vs = sortedVariants(b);
-  const varRows = vs.length ? vs.map(({v,i})=>`<div class="csrow ${u.selPick.t==='var'&&u.selPick.i===i?'on':''}" data-act="pickvar" data-i="${i}">
-      <div class="sp" style="min-width:0"><div class="nm">${esc(v.label||'Build')}</div><div class="tiny dim">${num(v.games)} partite · ${pct(v.share,0)}</div></div>
-      <div class="ic3">${v.boots?`<img src="${iImg(v.boots)}">`:''}${v.path.slice(0,3).map(id=>`<img src="${iImg(id)}">`).join('')}</div>
-      <span class="wrb ${v.winRate>=.5?'good':'bad'}">${pct(v.winRate,0)}</span></div>`).join('')
-    : `<div class="csrow ${u.selPick.t==='var'?'on':''}" data-act="pickvar" data-i="0"><div class="sp"><div class="nm">${b.personal?'Build personale':b.games?'Build principale':'Build consigliata'}</div><div class="tiny dim">${b.games?num(b.games)+' partite':'rune consigliate da Riot / build personale'}</div></div>${b.games?`<span class="wrb ${b.winRate>=.5?'good':'bad'}">${pct(b.winRate,0)}</span>`:''}</div>`;
+function drawSelHeader(s){
+  const u = S.ui, b = u.selData, el = $('#cshero'); if(!el || !b) return;
   const opp = u.sopp ? [...(b.best||[]),...(b.worst||[])].find(x=>x.champion===u.sopp) : null;
-  return `<div class="csgrid">
-    <div class="card cslist" id="cslist">
-      <div class="seg full">${[['best','Migliore'],['wr','Win rate'],['common','Più giocata']].map(([k,l])=>`<button data-act="vsort" data-k="${k}" class="${u.vsort===k?'on':''}">${l}</button>`).join('')}</div>
-      <div class="cssec">Build ${esc(tierLbl)}${b.widened?' <span class="tiny dim">(ampliato)</span>':''}</div>${varRows}
-      <div class="cssec">Pro e Master+</div>${proRowsHTML(b.proGames, true)}
-    </div>
-    <div class="card">
-      <div class="ctitle"><h2>${esc(view.title)}</h2><span class="sp"></span>${b.games?`<span class="badge">${pct(b.winRate)} WR · ${num(b.games)} partite</span>`:''}${opp?`<span class="badge ${opp.winRate>=.5?'good':'bad'}">vs ${esc(champ(opp.champion).name)}: ${pct(opp.winRate)}</span>`:''}</div>
-      <div class="kicker">Rune <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:500">${esc(view.runeInfo||'')}</span></div>
-      <div class="mt">${runesHTML(view.runes)}</div>
-      <div class="kicker mt2">Ordine abilità <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:500">${esc(view.seqInfo||'')}</span></div>
-      ${b.skills && S.ui.selPick.t==='var'?`<div class="skills mt" style="margin-bottom:8px">${b.skills.split('>').map((k,i)=>`${i?'<span class="arr">›</span>':''}<span class="skey">${k}</span>`).join('')}</div>`:''}
-      <div class="mt">${skillGridHTML(view.seq)}</div>
-    </div>
-    <div class="card">
-      <div class="blocklbl" style="margin-top:0"><span>Incantesimi</span><span class="small muted">${esc(view.spellsInfo||'')}</span></div>
-      <div class="row">${(view.spells||[]).map(sp=>`<img class="ic" src="${sImg(sp)}" title="${esc(S.spells[sp]?.name||'')}">`).join('')||'<span class="small dim">—</span>'}</div>
-      <div class="blocklbl"><span>Inizio partita</span><span class="small dim">5 slot</span></div>${slotsHTML(view.starting,5,'starting',false)}
-      <div class="blocklbl"><span>Ordine build</span><span class="small dim">10 slot</span></div>${slotsHTML(view.core,10,'core',false, S.ui.selPick.t==='var'?b.itemWR:null)}
-      <div class="blocklbl"><span>Situazionali</span><span class="small dim">10 slot</span></div>${slotsHTML(view.situational,10,'situational',false, S.ui.selPick.t==='var'?b.itemWR:null)}
-    </div>
-  </div>`;
+  const banned = new Set([...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[]),...s.theirs.map(x=>x.champ),...s.mine.map(x=>x.champ)]);
+  const banSugg = (b.worst||[]).filter(x=>!banned.has(x.champion)).slice(0,5);
+  put(el, `<div class="row" style="gap:16px;align-items:center">${ci(s.myChamp,'l')}
+      <div class="sp"><h2 style="margin:0">${esc(champ(s.myChamp).name)} <span class="dim small">${POS[b.position]||''}</span></h2>
+        <div class="small muted">${b.games?`${pct(b.winRate)} WR · ${num(b.games)} partite`:'Pochi dati per questo filtro'}${u.sopp?` · vs ${esc(champ(u.sopp).name)}: ${opp?`<b class="${opp.winRate>=.5?'good':'bad'}">${pct(opp.winRate)}</b> <span class="dim">(${opp.games})</span>`:'<span class="dim">matchup senza dati</span>'}`:''}</div></div>
+      <button class="btn" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>⇩ Importa tutto</button></div>
+    ${banSugg.length?`<div class="row gap6 mt12 small"><span class="dim">Ban consigliati</span>${banSugg.map(x=>`<span class="bansg" title="${esc(champ(x.champion).name)}: ${pct(x.winRate)} per te">${ci(x.champion,'s')}<b class="bad">${pct(x.winRate,0)}</b></span>`).join('')}</div>`:''}`, true);
 }
-function redrawSelBuild(){ const b = S.ui.selData; if(b && $('#csbody')) $('#csbody').innerHTML = selBuildHTML(b, selState()); }
 function autoBox(bare){
   const s = S.settings;
   const inner = `<div class="setting"><div class="lbl"><b>Rune</b></div>${sw('autoRunes',s.autoRunes)}</div>
@@ -965,6 +1069,8 @@ function pageSettings(m){
       <div class="card"><h2>Aspetto</h2>
         <div class="setting"><div class="lbl"><b>Tema</b></div><div class="seg"><button data-act="theme" data-k="dark" class="${s.theme!=='light'?'on':''}">Scuro</button><button data-act="theme" data-k="light" class="${s.theme==='light'?'on':''}">Chiaro</button></div></div>
         <div class="setting"><div class="lbl"><b>Animazioni</b></div>${sw('animations',s.animations!==false)}</div>
+        <div class="setting"><div class="lbl"><b>Avvia con Windows</b><span class="small muted">Parte nascosta vicino all'orologio e si apre da sola in champion select</span></div>${sw('autostart',!!s.autostart)}</div>
+        <div class="setting"><div class="lbl"><b>Notifiche di Windows</b><span class="small muted">Partita trovata, build importata, LP guadagnati o persi</span></div>${sw('notifications',s.notifications!==false)}</div>
         <div class="setting"><div class="lbl"><b>Barra di Windows</b><span class="small muted">Usa la cornice classica al posto di quella dell'app</span></div>${sw('nativeFrame',!!s.nativeFrame)}</div></div>
       <div class="card"><h2>Automatismi in champion select</h2>
         <div class="setting"><div class="lbl"><b>Importa rune</b><small>Crea una pagina "BetterStomp" quando blocchi il campione</small></div>${sw('autoRunes',s.autoRunes)}</div>
@@ -1080,6 +1186,9 @@ const actions = {
   sidemore(t){ S.ui.sideMore=S.ui.sideMore||{}; S.ui.sideMore[t.dataset.k]=!S.ui.sideMore[t.dataset.k]; $('#side')._h=''; renderSide(); },
   addpro(){ const l=[...(S.settings.proPlayers||[]),{label:'',riotId:'',region:S.settings.region}]; setSetting('proPlayers',l); drawProList(); },
   delpro(t){ const l=[...(S.settings.proPlayers||[])]; l.splice(+t.dataset.i,1); setSetting('proPlayers',l); drawProList(); },
+  cq2(t){ S.ui.cq2=t.dataset.k; $('#ptab').innerHTML=profileTab(S.ui.prof); },
+  cr2(t){ S.ui.cr2=t.dataset.k; $('#ptab').innerHTML=profileTab(S.ui.prof); },
+  benchtier(t){ S.ui.btier=t.dataset.k; S.ui.bench=null; render(true); },
   mq(t){ S.ui.mq=t.dataset.q; S.ui.mShow=20; render(true); },
   mmore(){ S.ui.mShow=(S.ui.mShow||20)+20; render(true); },
   kssel(t){ S.ui.ksSel=+t.dataset.k; S.ui.runeSet=0; refreshEditor(); },
@@ -1131,11 +1240,12 @@ document.addEventListener('change', e=>{
   if(t.dataset.pro!==undefined){ const l=[...(S.settings.proPlayers||[])]; const i=+t.dataset.pro; l[i]={...l[i],[t.dataset.f]:t.value.trim()}; setSetting('proPlayers',l); return; }
   if(t.dataset.set){
     if(t.dataset.set==='_why'){ S.ui.why=t.checked; drawPatch(); return; }
+    if(t.dataset.set==='autoAll'){ ['autoRunes','autoSpells','autoItems'].forEach(k=>setSetting(k, t.checked)); toast(t.checked?'Import automatico attivo':'Import automatico spento'); return; }
     setSetting(t.dataset.set, t.type==='checkbox' ? t.checked : t.value);
     if(t.dataset.set==='stream.goalTier' || t.dataset.set==='overlay.csGoal') render();
     if(t.type==='checkbox') document.querySelectorAll(`[data-set="${t.dataset.set}"]`).forEach(x=>x.checked=t.checked);
   }
-  if(t.dataset.ui){ S.ui[t.dataset.ui] = t.dataset.num ? +t.value : t.value; if(t.dataset.ui==='sopp'){ S.ui.soppManual=false; } if(t.dataset.ui==='chMode') S.ui.chPos=''; if(['sopp','spos','smode','selTier'].includes(t.dataset.ui)){ S.ui.ssig=''; if(t.dataset.ui!=='sopp') S.ui.sbuildKey=''; updateSelect(true); } else render(); }
+  if(t.dataset.ui){ S.ui[t.dataset.ui] = t.dataset.num ? +t.value : t.value; if(t.dataset.ui==='sopp'){ S.ui.soppManual=+t.value>0; } if(t.dataset.ui==='chMode') S.ui.chPos=''; if(['sopp','spos','smode','selTier'].includes(t.dataset.ui)){ S.ui.ssig=''; if(t.dataset.ui!=='sopp') S.ui.sbuildKey=''; updateSelect(true); } else render(); }
 });
 document.addEventListener('input', e=>{
   const t = e.target;

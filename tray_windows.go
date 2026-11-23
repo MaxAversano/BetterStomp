@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"syscall"
 	"time"
 	"unsafe"
@@ -131,4 +132,36 @@ func startTray(hinst uintptr) {
 	tip, _ := syscall.UTF16FromString("BetterStomp · clic destro per uscire")
 	copy(trayData.szTip[:], tip)
 	pShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&trayData)))
+}
+
+// notifica di Windows (fumetto dall'icona vicino all'orologio)
+func notify(title, msg string) {
+	if trayData.hWnd == 0 || !getSettings().Notifications {
+		return
+	}
+	d := trayData
+	d.uFlags = 0x10 // NIF_INFO
+	tt, _ := syscall.UTF16FromString(title)
+	mm, _ := syscall.UTF16FromString(msg)
+	copy(d.szInfoTitle[:63], tt)
+	copy(d.szInfo[:255], mm)
+	d.dwInfoFlags = 0x4 | 0x20 // NIIF_USER | NIIF_LARGE_ICON: icona dell'app
+	d.hBalloonIcon = trayData.hIcon
+	pShellNotifyIcon.Call(1, uintptr(unsafe.Pointer(&d))) // NIM_MODIFY
+}
+
+// avvio con Windows: chiave Run dell'utente (nessun permesso da amministratore)
+func setAutostart(on bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	var c *exec.Cmd
+	if on {
+		c = exec.Command("reg", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "BetterStomp", "/t", "REG_SZ", "/d", `"`+exe+`" --nascosto`, "/f")
+	} else {
+		c = exec.Command("reg", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "BetterStomp", "/f")
+	}
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	c.Run()
 }
