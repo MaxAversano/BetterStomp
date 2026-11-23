@@ -79,6 +79,7 @@ func main() {
 
 	start := time.Now()
 	go framelessLoop()
+	go cleanupOldExe()
 	go openAppWindow(appURL)
 
 	// resta aperto finché la finestra è aperta, oppure finché c'è una partita in corso
@@ -96,3 +97,46 @@ func main() {
 		appExit()
 	}
 }
+
+func restartApp() {
+	time.Sleep(300 * time.Millisecond)
+	if exe, err := os.Executable(); err == nil {
+		relaunchLater(exe) // riparte dopo un paio di secondi, quando questa istanza è chiusa
+	}
+	appExit()
+}
+
+// aggiornamento senza chiudere a mano: l'exe in uso si può rinominare, non sovrascrivere
+func selfUpdate() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	upd := filepath.Join(filepath.Dir(exe), "BetterStomp.update.exe")
+	if _, err := os.Stat(upd); err != nil {
+		return err
+	}
+	old := exe + ".old"
+	os.Remove(old)
+	if err := os.Rename(exe, old); err != nil {
+		return err
+	}
+	if err := os.Rename(upd, exe); err != nil {
+		os.Rename(old, exe)
+		return err
+	}
+	return nil
+}
+
+func cleanupOldExe() {
+	if exe, err := os.Executable(); err == nil {
+		for i := 0; i < 10; i++ {
+			if os.Remove(exe+".old") == nil || !fileExists(exe+".old") {
+				return
+			}
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

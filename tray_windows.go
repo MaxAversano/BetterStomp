@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -59,7 +60,12 @@ var (
 
 func trayQuit() {
 	pShellNotifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(&trayData)))
-	engine.save()
+	done := make(chan struct{})
+	go func() { engine.save(); close(done) }()
+	select { // salva le statistiche, ma non resta mai appeso in chiusura
+	case <-done:
+	case <-time.After(3 * time.Second):
+	}
 	os.Exit(0)
 }
 

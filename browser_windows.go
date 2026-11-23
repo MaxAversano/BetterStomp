@@ -33,6 +33,9 @@ func findBrowser() string {
 
 // apre l'interfaccia in una finestra "app" senza barre del browser
 func openAppWindow(url string) {
+	if !getSettings().NativeFrame && openWebViewWindow(url) {
+		return
+	}
 	b := findBrowser()
 	if b == "" {
 		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()

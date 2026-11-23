@@ -60,6 +60,8 @@ var (
 	pGetDpiForWindow  = u32.NewProc("GetDpiForWindow")
 	pCreateRoundRgn   = g32.NewProc("CreateRoundRectRgn")
 	pGetWindowRgnBox  = u32.NewProc("GetWindowRgnBox")
+	pDwmExtendFrame   = syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmExtendFrameIntoClientArea")
+	dwmRes            atomic.Value
 	renderHwnd        atomic.Uintptr
 	lastRgn           [5]int32
 )
@@ -78,6 +80,18 @@ var childCB = syscall.NewCallback(func(h, _ uintptr) uintptr {
 
 // ritaglia la finestra sulla sola pagina (senza la barra del browser) con angoli arrotondati
 func applyFrameless(h uintptr) bool {
+	// senza WS_CAPTION Windows non disegna più la fascia della barra (resta il ritaglio per il resto)
+	if st, _, _ := pGetWindowLongPtr.Call(h, gwlStyle); st&wsCaption != 0 {
+		pSetWindowLongPtr.Call(h, gwlStyle, st&^wsCaption)
+		pSetWindowPos.Call(h, 0, 0, 0, 0, 0, swpFrameChg)
+		lastRgn = [5]int32{}
+	}
+	// niente fascia scura di DWM (cornice estesa e disegno della barra)
+	pol := uint32(1) // DWMNCRP_DISABLED
+	r1, _, _ := pDwmSetWindowAttrib.Call(h, 2, uintptr(unsafe.Pointer(&pol)), 4)
+	var mg [4]int32
+	r2, _, _ := pDwmExtendFrame.Call(h, uintptr(unsafe.Pointer(&mg[0])))
+	dwmRes.Store([2]uintptr{r1, r2})
 	renderHwnd.Store(0)
 	pEnumChildWindows.Call(h, childCB, 0)
 	ch := renderHwnd.Load()
@@ -104,6 +118,9 @@ func applyFrameless(h uintptr) bool {
 		top = cr.b - ih // la pagina dice quanto è alta: sopra c'è solo la barra del browser
 	}
 	cur := [5]int32{cr.l - wr.l, top - wr.t, cr.r - wr.l, cr.b - wr.t, rad}
+	var bx0 rect
+	bt, _, _ := pGetWindowRgnBox.Call(h, uintptr(unsafe.Pointer(&bx0)))
+	frameDebug.Store(map[string]any{"win": []int32{wr.l, wr.t, wr.r, wr.b}, "render": []int32{cr.l, cr.t, cr.r, cr.b}, "inner": innerPx.Load(), "rgn": cur, "box": []int32{bx0.l, bx0.t, bx0.r, bx0.b}, "boxType": bt, "dpi": dpi, "dwm": dwmRes.Load()})
 	if cur == lastRgn {
 		var bx rect
 		t, _, _ := pGetWindowRgnBox.Call(h, uintptr(unsafe.Pointer(&bx)))
@@ -151,6 +168,10 @@ func framelessLoop() {
 }
 
 // altezza della pagina in pixel reali (inviata dall'interfaccia)
+var frameDebug atomic.Value
+
+func frameInfo() any { return frameDebug.Load() }
+
 func setInner(h, dpr float64) {
 	if h > 0 && dpr > 0 {
 		innerPx.Store(int64(h*dpr + 0.5))
@@ -158,6 +179,35 @@ func setInner(h, dpr float64) {
 }
 
 func windowAction(a string) {
+	wvMu.Lock()
+	wh := wvHwnd
+	wvMu.Unlock()
+	if wh != 0 { // finestra nostra con WebView2
+		switch {
+		case a == "drag":
+			if wvMaxed {
+				wvMaxed = false
+				setCorners(wh, true)
+				var c pt
+				pGetCursorPosF.Call(uintptr(unsafe.Pointer(&c)))
+				r := wvRestore
+				w := r.r - r.l
+				pSetWindowPos.Call(wh, 0, uintptr(c.x-w/2), uintptr(c.y-20), uintptr(w), uintptr(r.b-r.t), 0x0004)
+			}
+			go trackMouse(wh, 0)
+		case len(a) == 5 && a[:4] == "size":
+			if !wvMaxed {
+				go trackMouse(wh, int(a[4]-'0'))
+			}
+		case a == "min":
+			wvPost(1)
+		case a == "max":
+			wvPost(2)
+		case a == "close":
+			wvPost(3)
+		}
+		return
+	}
 	h := appHwnd.Load()
 	if h == 0 {
 		if h = findAppWindow(); h == 0 {
@@ -182,7 +232,7 @@ func windowAction(a string) {
 	}
 }
 
-func isFrameless() bool { return framelessOn.Load() }
+func isFrameless() bool { return framelessOn.Load() || wvHwnd != 0 }
 
 var (
 	pGetCursorPosF = u32.NewProc("GetCursorPos")

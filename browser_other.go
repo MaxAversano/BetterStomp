@@ -16,3 +16,5 @@ func framelessLoop()          {}
 func windowAction(a string)   {}
 func isFrameless() bool       { return false }
 func setInner(h, dpr float64) {}
+func frameInfo() any          { return nil }
+func windowKind() string      { return "" }

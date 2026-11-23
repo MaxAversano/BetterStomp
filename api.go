@@ -53,11 +53,30 @@ func setupAPI(mux *http.ServeMux) {
 			"autoTier":  autoTier(),
 			"riotKey":   riot.getStatus(),
 			"frameless": isFrameless(),
+			"window":    windowKind(),
 		})
 	})
 
 	mux.HandleFunc("/api/win", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		if q.Get("a") == "update" { // sostituisce l'exe con BetterStomp.update.exe e riavvia
+			if err := selfUpdate(); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			w.WriteHeader(204)
+			go restartApp()
+			return
+		}
+		if q.Get("a") == "restart" { // riavvia l'app (dopo un aggiornamento dell'exe)
+			w.WriteHeader(204)
+			go restartApp()
+			return
+		}
+		if q.Get("a") == "debug" {
+			jsonOut(w, frameInfo())
+			return
+		}
 		if q.Get("a") == "inner" {
 			h, _ := strconv.ParseFloat(q.Get("h"), 64)
 			d, _ := strconv.ParseFloat(q.Get("d"), 64)
