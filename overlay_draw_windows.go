@@ -234,6 +234,12 @@ func tintedBits(kind string, size int, col, bg uint32) []byte {
 				}
 			}
 			a /= 4
+			// l'icona è un disco pieno con la sagoma "bucata": la inverto per avere la sagoma colorata
+			if math.Hypot(float64(x)-float64(size-1)/2, float64(y)-float64(size-1)/2) < float64(size)*0.44 {
+				a = 1 - a
+			} else {
+				a = 0
+			}
 			i := (y*size + x) * 4
 			px[i] = byte(cb*a + bb*(1-a))
 			px[i+1] = byte(cg*a + bgg*(1-a))
@@ -250,7 +256,7 @@ func drawObjIcon(hdc uintptr, name string, r rect) {
 	kind, col := objIcon(name)
 	bg := rgb("#24202A")
 	roundRect(hdc, r, r.r-r.l, bg, rgb(col))
-	in := int((r.r - r.l) * 62 / 100)
+	in := int((r.r - r.l) * 92 / 100)
 	if kind != "" {
 		if px := tintedBits(kind, in, uint32(rgb(col)), uint32(bg)); px != nil {
 			off := (r.r - r.l - int32(in)) / 2
