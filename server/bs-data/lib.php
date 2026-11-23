@@ -6,8 +6,10 @@
 require __DIR__ . '/config.php';
 
 const TIERS = ['IRON','BRONZE','SILVER','GOLD','PLATINUM','EMERALD','DIAMOND','MASTER','GRANDMASTER','CHALLENGER'];
-define('STORE', __DIR__ . '/store');
+// cartella dati con nome non indovinabile (niente .htaccess: su alcuni hosting causa errori)
+define('STORE', __DIR__ . '/dati_' . substr(hash('sha256', $TOKEN), 0, 16));
 if (!is_dir(STORE)) { @mkdir(STORE, 0755, true); }
+if (!is_file(STORE . '/index.php')) { @file_put_contents(STORE . '/index.php', "<?php http_response_code(404);\n"); }
 
 function check_token() {
     global $TOKEN;
@@ -64,8 +66,8 @@ function riot($url) {
     global $RIOT_KEY;
     $st = &$GLOBALS['STATE'];
     $now = microtime(true);
-    $hits = array_values(array_filter($st['hits'] ?? [], fn($t) => $now - $t < 120));
-    $last1 = count(array_filter($hits, fn($t) => $now - $t < 1));
+    $hits = array_values(array_filter(isset($st['hits']) ? $st['hits'] : [], function ($t) use ($now) { return $now - $t < 120; }));
+    $last1 = count(array_filter($hits, function ($t) use ($now) { return $now - $t < 1; }));
     $max2 = $st['max2'] ?? 95; $max1 = $st['max1'] ?? 18;
     if (count($hits) >= $max2) { $st['hits'] = $hits; return ['wait' => true]; }
     if ($last1 >= $max1) { usleep(1100000); }
@@ -76,7 +78,7 @@ function riot($url) {
     $body = http_get($url, ['X-Riot-Token: ' . $RIOT_KEY], $code, $rh);
     if (!empty($rh['x-app-rate-limit'])) {
         foreach (explode(',', $rh['x-app-rate-limit']) as $part) {
-            [$n, $s] = array_map('intval', explode(':', $part) + [0, 0]);
+            list($n, $s) = array_map('intval', explode(':', $part) + [0, 0]);
             if ($s == 1) $st['max1'] = max(1, intdiv($n * 9, 10));
             if ($s == 120) $st['max2'] = max(1, intdiv($n * 9, 10));
         }
@@ -159,7 +161,7 @@ function skill_key($seq) {
     $lim = min(count($seq), 13);
     for ($i = 0; $i < $lim; $i++) { $s = $seq[$i]; if ($s == 4 || !isset($count[$s])) continue; $count[$s]++; $reach[$s] = $i; }
     $order = [1,2,3];
-    usort($order, fn($a, $b) => $count[$a] != $count[$b] ? $count[$b] - $count[$a] : $reach[$a] - $reach[$b]);
+    usort($order, function ($a, $b) use ($count, $reach) { return $count[$a] != $count[$b] ? $count[$b] - $count[$a] : $reach[$a] - $reach[$b]; });
     return $L[$order[0]] . '>' . $L[$order[1]] . '>' . $L[$order[2]] . '|' . $first;
 }
 
@@ -216,7 +218,7 @@ function ingest(&$db, $m, $mode, $tier, $tl, $items, $region) {
         if (count($path) >= 3) add_stat($a['builds'], $boots . ':' . $path[0] . ',' . $path[1] . ',' . $path[2], $win);
         if (($rk = rune_key($p)) !== '') add_stat($a['runes'], $rk, $win);
         $s1 = $p['summoner1Id']; $s2 = $p['summoner2Id'];
-        if ($s1 > $s2) { [$s1, $s2] = [$s2, $s1]; }
+        if ($s1 > $s2) { $tmp = $s1; $s1 = $s2; $s2 = $tmp; }
         add_stat($a['spells'], $s1 . ',' . $s2, $win);
         if (!empty($starts[$i + 1])) { $st = $starts[$i + 1]; sort($st); add_stat($a['start'], implode(',', $st), $win); }
         if (!empty($skills[$i + 1]) && count($skills[$i + 1]) >= 9) {
@@ -249,13 +251,13 @@ function add_pro(&$db, $m, $p, $tier, $region, $mode, $starts, $skills) {
     $c = (string)$p['championId'];
     $list = $db['pro'][$c] ?? [];
     $list[] = $g;
-    usort($list, fn($x, $y) => $y['when'] <=> $x['when']);
+    usort($list, function ($x, $y) { return $y['when'] <=> $x['when']; });
     $db['pro'][$c] = array_slice($list, 0, 30);
 }
 
 // Go si aspetta oggetti JSON per le mappe (anche vuote o con chiavi numeriche)
 function to_go($db) {
-    $obj = fn($a) => (object)($a ?: []);
+    $obj = function ($a) { return (object)($a ?: []); };
     $out = ['patch' => $db['patch'], 'total' => $db['total'], 'buckets' => [], 'seen' => new stdClass(), 'pro' => []];
     foreach ($db['buckets'] as $k => $b) {
         $champs = [];

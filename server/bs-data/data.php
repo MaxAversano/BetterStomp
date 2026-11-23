@@ -1,7 +1,7 @@
 <?php
 // Statistiche per BetterStomp: ?k=TOKEN (dati) oppure ?k=TOKEN&status=1 (stato del motore)
 require __DIR__ . '/config.php';
-define('STORE', __DIR__ . '/store');
+define('STORE', __DIR__ . '/dati_' . substr(hash('sha256', $TOKEN), 0, 16));
 if (!isset($_GET['k']) || !hash_equals($TOKEN, (string)$_GET['k'])) { http_response_code(403); exit('accesso negato'); }
 header('Cache-Control: no-store');
 
