@@ -615,7 +615,7 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 	j := o.jobs[ot]
 	if j == nil {
 		j = &opggTierJob{Tier: ot}
-		readJSON(filepath.Join(opggDir(), "tier2_"+ot+".json"), j)
+		readJSON(filepath.Join(opggDir(), "tier3_"+ot+".json"), j)
 		o.jobs[ot] = j
 	}
 	stale := len(j.Rows) == 0 || time.Since(j.At) > 12*time.Hour
@@ -631,24 +631,26 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 }
 
 func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
-	type pair struct {
-		c   int
-		pos string
-	}
-	var todo []pair
+	// una chiamata per campione: OP.GG restituisce le statistiche di ogni ruolo per quell'elo
+	mainPos := map[int]opggMetaRow{}
 	for _, r := range meta {
-		if r.RoleRate >= 0.08 || r.Play >= 3000 {
-			todo = append(todo, pair{r.Champion, r.Pos})
+		if m, ok := mainPos[r.Champion]; !ok || r.Play > m.Play {
+			mainPos[r.Champion] = r
 		}
+	}
+	var todo []opggMetaRow
+	for _, r := range mainPos {
+		todo = append(todo, r)
 	}
 	o.mu.Lock()
 	j.Total = len(todo)
 	o.mu.Unlock()
-	fields := []string{"data.summary.average_stats.{play,win_rate,pick_rate,ban_rate,tier,rank}"}
+	fields := []string{"data.summary.positions[].name", "data.summary.positions[].stats.{play,win_rate,pick_rate,ban_rate,role_rate}",
+		"data.summary.positions[].stats.tier_data.{tier,rank}"}
 	var out []opggMetaRow
 	var omu sync.Mutex
 	fails := 0
-	ch := make(chan pair)
+	ch := make(chan opggMetaRow)
 	var wg sync.WaitGroup
 	for w := 0; w < 5; w++ {
 		wg.Add(1)
@@ -656,13 +658,13 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 			defer wg.Done()
 			for p := range ch {
 				o.mu.Lock()
-				key := o.keys[p.c]
+				key := o.keys[p.Champion]
 				o.mu.Unlock()
 				var v any
 				var err error
 				for try := 0; try < 2; try++ {
 					v, err = o.call("lol_get_champion_analysis", map[string]any{"game_mode": "ranked", "champion": key,
-						"position": pos2opgg[p.pos], "tier": j.Tier, "desired_output_fields": fields})
+						"position": pos2opgg[p.Pos], "tier": j.Tier, "desired_output_fields": fields})
 					if err == nil {
 						break
 					}
@@ -671,9 +673,17 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 				omu.Lock()
 				if err != nil {
 					fails++
-				} else if a := og(v, "data", "summary", "average_stats"); a != nil && ogi(a, "play") > 0 {
-					out = append(out, opggMetaRow{Champion: p.c, Pos: p.pos, Play: ogi(a, "play"), WinRate: ogf(a, "win_rate"),
-						PickRate: ogf(a, "pick_rate"), BanRate: ogf(a, "ban_rate"), RoleRate: 1, Tier: ogi(a, "tier"), Rank: ogi(a, "rank")})
+				} else {
+					for _, x := range ogl(v, "data", "summary", "positions") {
+						ps := opgg2pos[strings.ToLower(ogs(x, "name"))]
+						st := og(x, "stats")
+						if ps == "" || ogi(st, "play") == 0 {
+							continue
+						}
+						out = append(out, opggMetaRow{Champion: p.Champion, Pos: ps, Play: ogi(st, "play"), WinRate: ogf(st, "win_rate"),
+							PickRate: ogf(st, "pick_rate"), BanRate: ogf(st, "ban_rate"), RoleRate: ogf(st, "role_rate"),
+							Tier: ogi(st, "tier_data", "tier"), Rank: ogi(st, "tier_data", "rank")})
+					}
 				}
 				omu.Unlock()
 				o.mu.Lock()
@@ -687,7 +697,7 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 	}
 	close(ch)
 	wg.Wait()
-	log.Printf("op.gg tier list %s: %d/%d campioni (%d errori)", j.Tier, len(out), len(todo), fails)
+	log.Printf("op.gg tier list %s: %d righe da %d campioni (%d errori)", j.Tier, len(out), len(todo), fails)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	j.Busy = false
@@ -695,14 +705,8 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 		o.failAt = time.Now()
 		return
 	}
-	// i ruoli con pochissime partite in questo elo vanno fuori
-	for i := range out {
-		if out[i].Play < 40 {
-			out[i].RoleRate = 0
-		}
-	}
 	j.Rows, j.At = out, time.Now()
-	writeJSON(filepath.Join(opggDir(), "tier2_"+j.Tier+".json"), j)
+	writeJSON(filepath.Join(opggDir(), "tier3_"+j.Tier+".json"), j)
 }
 
 // ---------- build del campione ----------
@@ -759,7 +763,8 @@ func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 	args := map[string]any{"game_mode": mode, "champion": key, "position": pos2opgg[pos], "desired_output_fields": []string{
 		"data.summary.average_stats.{ban_rate,pick_rate,play,rank,tier,win_rate}",
 		"data.summary.positions[].name",
-		"data.summary.positions[].stats.{play,role_rate,win_rate}",
+		"data.summary.positions[].stats.{play,role_rate,win_rate,pick_rate,ban_rate}",
+		"data.summary.positions[].stats.tier_data.{tier,rank}",
 		"data.runes.{primary_page_id,primary_rune_ids[],secondary_page_id,secondary_rune_ids[],stat_mod_ids[],play,win,pick_rate}",
 		"data.core_items.{ids[],pick_rate,play,win}",
 		"data.boots.{ids[],pick_rate,play,win}",
@@ -797,10 +802,16 @@ func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 	r.WinRate, r.PickRate, r.BanRate = ogf(a, "win_rate"), ogf(a, "pick_rate"), ogf(a, "ban_rate")
 	r.TierLabel = opggTierLabel(ogi(a, "tier"), ogi(a, "rank"))
 	for _, p := range ogl(d, "summary", "positions") {
-		if ps := opgg2pos[strings.ToLower(ogs(p, "name"))]; ps != "" {
-			r.Positions = append(r.Positions, PosShare{Position: ps, Games: ogi(p, "stats", "play"), Share: ogf(p, "stats", "role_rate")})
-		} else if strings.EqualFold(ogs(p, "name"), "adc") {
-			r.Positions = append(r.Positions, PosShare{Position: "BOTTOM", Games: ogi(p, "stats", "play"), Share: ogf(p, "stats", "role_rate")})
+		ps := opgg2pos[strings.ToLower(ogs(p, "name"))]
+		if ps == "" {
+			continue
+		}
+		st := og(p, "stats")
+		r.Positions = append(r.Positions, PosShare{Position: ps, Games: ogi(st, "play"), Share: ogf(st, "role_rate")})
+		if ps == pos && ogi(st, "play") > 0 { // i numeri in alto sono quelli del ruolo scelto, non del campione in generale
+			r.Games, r.Matches = ogi(st, "play"), ogi(st, "play")
+			r.WinRate, r.PickRate, r.BanRate = ogf(st, "win_rate"), ogf(st, "pick_rate"), ogf(st, "ban_rate")
+			r.TierLabel = opggTierLabel(ogi(st, "tier_data", "tier"), ogi(st, "tier_data", "rank"))
 		}
 	}
 	// rune
