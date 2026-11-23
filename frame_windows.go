@@ -99,7 +99,11 @@ func applyFrameless(h uintptr) bool {
 	if zoomed != 0 {
 		rad = 0
 	}
-	cur := [5]int32{cr.l - wr.l, cr.t - wr.t, cr.r - wr.l, cr.b - wr.t, rad}
+	top := cr.t
+	if ih := int32(innerPx.Load()); ih > 100 && ih < cr.b-cr.t {
+		top = cr.b - ih // la pagina dice quanto è alta: sopra c'è solo la barra del browser
+	}
+	cur := [5]int32{cr.l - wr.l, top - wr.t, cr.r - wr.l, cr.b - wr.t, rad}
 	if cur == lastRgn {
 		var bx rect
 		t, _, _ := pGetWindowRgnBox.Call(h, uintptr(unsafe.Pointer(&bx)))
@@ -146,6 +150,13 @@ func framelessLoop() {
 	}
 }
 
+// altezza della pagina in pixel reali (inviata dall'interfaccia)
+func setInner(h, dpr float64) {
+	if h > 0 && dpr > 0 {
+		innerPx.Store(int64(h*dpr + 0.5))
+	}
+}
+
 func windowAction(a string) {
 	h := appHwnd.Load()
 	if h == 0 {
@@ -177,6 +188,7 @@ var (
 	pGetCursorPosF = u32.NewProc("GetCursorPos")
 	pGetKeyStateF  = u32.NewProc("GetAsyncKeyState")
 	dragging       atomic.Bool
+	innerPx        atomic.Int64
 )
 
 type pt struct{ x, y int32 }

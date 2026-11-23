@@ -57,7 +57,14 @@ func setupAPI(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/api/win", func(w http.ResponseWriter, r *http.Request) {
-		windowAction(r.URL.Query().Get("a"))
+		q := r.URL.Query()
+		if q.Get("a") == "inner" {
+			h, _ := strconv.ParseFloat(q.Get("h"), 64)
+			d, _ := strconv.ParseFloat(q.Get("d"), 64)
+			setInner(h, d)
+		} else {
+			windowAction(q.Get("a"))
+		}
 		w.WriteHeader(204)
 	})
 

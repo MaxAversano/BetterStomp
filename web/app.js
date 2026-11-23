@@ -137,9 +137,12 @@ document.addEventListener('mousedown', e=>{
   if(e.target.closest('header.top') && !e.target.closest('a,button,input,select,.status,.gamechip') && e.detail===1) fetch('/api/win?a=drag');
 });
 document.addEventListener('dblclick', e=>{ if(document.body.classList.contains('frameless') && e.target.closest('header.top') && !e.target.closest('a,button,input,select')) fetch('/api/win?a=max'); });
+function sendInner(){ fetch(`/api/win?a=inner&h=${innerHeight}&d=${devicePixelRatio}`).catch(()=>{}); }
+addEventListener('resize', sendInner); setTimeout(sendInner, 300);
 async function poll(){
   try{ S.st = await api('/api/state'); }catch(e){ return; }
   document.body.classList.toggle('frameless', !!S.st.frameless);
+  if(Date.now()-(S._inSent||0) > 5000){ S._inSent=Date.now(); sendInner(); }
   const c = S.st.client;
   $('#cdot').classList.toggle('on', c.connected);
   const ph = {None:'Client connesso',Lobby:'In lobby',Matchmaking:'In coda',ReadyCheck:'Partita trovata',ChampSelect:'Champion select',InProgress:'In partita',EndOfGame:'Fine partita',WaitingForStats:'Fine partita',PreEndOfGame:'Fine partita'};
