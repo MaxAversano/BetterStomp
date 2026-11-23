@@ -62,6 +62,47 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, getSettings())
 	})
 
+	// modifica di singoli valori (es. "overlay.cs.x"): non sovrascrive ciò che è cambiato altrove,
+	// come le posizioni trascinate direttamente in gioco
+	mux.HandleFunc("/api/settings/patch", func(w http.ResponseWriter, r *http.Request) {
+		var changes map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&changes); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		old := getSettings()
+		b, _ := json.Marshal(old)
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		for path, v := range changes {
+			keys := strings.Split(path, ".")
+			cur := m
+			for i, k := range keys {
+				if i == len(keys)-1 {
+					cur[k] = v
+					break
+				}
+				next, ok := cur[k].(map[string]any)
+				if !ok {
+					next = map[string]any{}
+					cur[k] = next
+				}
+				cur = next
+			}
+		}
+		b, _ = json.Marshal(m)
+		ns := defaultSettings()
+		if err := json.Unmarshal(b, &ns); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		saveSettings(ns)
+		if old.RiotAPIKey != ns.RiotAPIKey {
+			riot.setStatus("")
+		}
+		jsonOut(w, ns)
+	})
+
 	mux.HandleFunc("/api/settings/reset-overlay", func(w http.ResponseWriter, r *http.Request) {
 		s := getSettings()
 		s.Overlay = defaultSettings().Overlay
@@ -139,9 +180,22 @@ func setupAPI(mux *http.ServeMux) {
 			Spells  bool   `json:"spells"`
 			Items   bool   `json:"items"`
 			Variant int    `json:"variant"`
+			Custom  *struct {
+				Runes       *RunePage `json:"runes"`
+				Spells      []int     `json:"spells"`
+				Starting    []int     `json:"starting"`
+				Core        []int     `json:"core"`
+				Situational []int     `json:"situational"`
+			} `json:"custom"`
 		}
 		json.NewDecoder(r.Body).Decode(&q)
-		msg := importBuild(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items, q.Variant)
+		var msg string
+		if q.Custom != nil {
+			b := BuildResult{Runes: q.Custom.Runes, Spells: q.Custom.Spells, Starting: q.Custom.Starting, Core: q.Custom.Core, Situational: q.Custom.Situational}
+			msg = importResolved(q.Champ, q.Pos, b, q.Runes, q.Spells, q.Items)
+		} else {
+			msg = importBuild(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items, q.Variant)
+		}
 		jsonOut(w, map[string]string{"message": msg})
 	})
 

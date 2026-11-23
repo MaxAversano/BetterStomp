@@ -52,6 +52,14 @@ var (
 	pCreateFont          = g32.NewProc("CreateFontW")
 	pSetTextColor        = g32.NewProc("SetTextColor")
 	pSetBkMode           = g32.NewProc("SetBkMode")
+	pGetStockObject      = g32.NewProc("GetStockObject")
+	pRectangle           = g32.NewProc("Rectangle")
+	pSetCapture          = u32.NewProc("SetCapture")
+	pReleaseCapture      = u32.NewProc("ReleaseCapture")
+	pGetWindowLongPtr    = u32.NewProc("GetWindowLongPtrW")
+	pSetWindowLongPtr    = u32.NewProc("SetWindowLongPtrW")
+	pLoadCursor          = u32.NewProc("LoadCursorW")
+	pSetCursor           = u32.NewProc("SetCursor")
 )
 
 const (
@@ -129,7 +137,7 @@ func setHotkeys(on bool) {
 		return
 	}
 	hotkeysOn = on
-	ids := []int{20, 21}
+	ids := []int{20, 21, 22}
 	for i := 1; i <= 6; i++ {
 		ids = append(ids, i, 10+i)
 	}
@@ -145,6 +153,7 @@ func setHotkeys(on bool) {
 	}
 	pRegisterHotKey.Call(ovHwnd, 20, modControl|modNoRepeat, 'T')
 	pRegisterHotKey.Call(ovHwnd, 21, modControl|modShift|modNoRepeat, 'O')
+	pRegisterHotKey.Call(ovHwnd, 22, modControl|modShift|modNoRepeat, 'C')
 }
 
 var (
@@ -217,6 +226,43 @@ func fillRect(hdc uintptr, r rect, color uintptr) {
 	pDeleteObject.Call(br)
 }
 
+type hitRect struct {
+	key    string
+	r      rect
+	center bool
+}
+
+var (
+	ovHits   []hitRect
+	dragKey  string
+	dragOffX int32
+	dragOffY int32
+	dragW    int32
+	dragC    bool
+)
+
+func textWidth(hdc uintptr, s string, f uintptr) int32 {
+	p, err := syscall.UTF16FromString(s)
+	if err != nil || len(p) <= 1 {
+		return 0
+	}
+	pSelectObject.Call(hdc, f)
+	r := rect{0, 0, 2000, 100}
+	pDrawText.Call(hdc, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)-1), uintptr(unsafe.Pointer(&r)), 0x400|dtSingleLine|dtNoPrefix) // DT_CALCRECT
+	return r.r - r.l
+}
+
+func dashRect(hdc uintptr, r rect, color uintptr) {
+	pen, _, _ := pCreatePen.Call(1, 1, color) // PS_DASH
+	nb, _, _ := pGetStockObject.Call(5)       // NULL_BRUSH
+	op, _, _ := pSelectObject.Call(hdc, pen)
+	ob, _, _ := pSelectObject.Call(hdc, nb)
+	pRectangle.Call(hdc, uintptr(r.l-3), uintptr(r.t-3), uintptr(r.r+3), uintptr(r.b+3))
+	pSelectObject.Call(hdc, op)
+	pSelectObject.Call(hdc, ob)
+	pDeleteObject.Call(pen)
+}
+
 func paintOverlay(hdc uintptr) {
 	mem, _, _ := pCreateCompatibleDC.Call(hdc)
 	bmp, _, _ := pCreateCompatibleBmp.Call(hdc, uintptr(ovW), uintptr(ovH))
@@ -230,82 +276,217 @@ func paintOverlay(hdc uintptr) {
 		k = 1
 	}
 	sc := func(v float64) int32 { return int32(v * k) }
-	panel := rgb("#11132A")
+	fs := func(v float64, bold bool) uintptr { return font(int(v*k)+1, bold) }
+	panel := rgb("#0F1124")
+	tileBg := rgb("#1A1D3A")
+	rowBg := rgb("#151830")
 	border := rgb("#2B3060")
+	muted := rgb("#9AA3C7")
+	var hits []hitRect
 
 	for _, w := range ovModel.Widgets {
 		if w.Pill {
+			ps := s.PillScale
+			if ps <= 0 {
+				ps = 0.7
+			}
 			x := ovW - int32(w.X)
 			y := ovH - int32(w.Y)
-			pw, ph := sc(40), sc(17)
+			pw, ph := sc(38*ps), sc(16*ps)
 			r := rect{x - pw/2, y - ph/2, x + pw/2, y + ph/2}
-			roundRect(mem, r, sc(10), panel, rgb(w.Accent))
+			roundRect(mem, r, ph, panel, rgb(w.Accent))
 			if len(w.Lines) > 0 {
-				drawText(mem, w.Lines[0].Text, r, rgb(w.Lines[0].Color), font(int(10*k)+1, true), dtCenter)
+				drawText(mem, w.Lines[0].Text, r, rgb(w.Lines[0].Color), fs(10*ps, true), dtCenter)
 			}
 			continue
 		}
+		x := int32(w.X * float64(ovW))
+		y := int32(w.Y * float64(ovH))
+		pad := sc(12)
+
+		// versione riassunta: una riga sola
+		if len(w.Segs) > 0 {
+			gap := sc(6)
+			total := pad*2 + sc(14)
+			fonts := make([]uintptr, len(w.Segs))
+			widths := make([]int32, len(w.Segs))
+			for i, sg := range w.Segs {
+				fonts[i] = fs(13, sg.Bold)
+				widths[i] = textWidth(mem, sg.Text, fonts[i])
+				total += widths[i] + gap
+			}
+			h := sc(30)
+			if w.Anchor == "center" {
+				x -= total / 2
+			}
+			x, y = clampXY(x, y, total, h)
+			roundRect(mem, rect{x, y, x + total, y + h}, h, panel, border)
+			// pallino colorato
+			dot := rect{x + pad, y + h/2 - sc(4), x + pad + sc(8), y + h/2 + sc(4)}
+			roundRect(mem, dot, sc(8), rgb(w.Accent), rgb(w.Accent))
+			cx := x + pad + sc(14)
+			for i, sg := range w.Segs {
+				drawText(mem, sg.Text, rect{cx, y, cx + widths[i] + 2, y + h}, rgb(sg.Color), fonts[i], dtLeft)
+				cx += widths[i] + gap
+			}
+			hits = append(hits, hitRect{w.Key, rect{x, y, x + total, y + h}, w.Anchor == "center"})
+			continue
+		}
+
 		width := sc(float64(w.Width))
-		pad := sc(10)
 		titleH := int32(0)
 		if w.Title != "" {
-			titleH = sc(18)
+			titleH = sc(22)
 		}
-		h := pad*2 + titleH
+		tileH := int32(0)
+		if len(w.Tiles) > 0 {
+			tileH = sc(58)
+			for _, t := range w.Tiles {
+				if t.Sub != "" {
+					tileH = sc(72)
+				}
+			}
+			tileH += sc(8)
+		}
+		h := pad*2 + titleH + tileH
 		for _, l := range w.Lines {
 			if l.Size >= 16 {
 				h += sc(28)
 			} else {
-				h += sc(21)
+				h += sc(24)
 			}
 		}
-		x := int32(w.X * float64(ovW))
-		y := int32(w.Y * float64(ovH))
 		if w.Anchor == "center" {
 			x -= width / 2
 		}
-		if x+width > ovW {
-			x = ovW - width - 4
-		}
-		if y+h > ovH {
-			y = ovH - h - 4
-		}
-		if x < 0 {
-			x = 0
-		}
-		if y < 0 {
-			y = 0
-		}
-		roundRect(mem, rect{x, y, x + width, y + h}, sc(14), panel, border)
-		fillRect(mem, rect{x + sc(4), y + sc(10), x + sc(7), y + h - sc(10)}, rgb(w.Accent))
+		x, y = clampXY(x, y, width, h)
+		roundRect(mem, rect{x, y, x + width, y + h}, sc(16), panel, border)
 		cy := y + pad
-		left := x + sc(16)
-		right := x + width - sc(12)
+		left := x + pad
+		right := x + width - pad
 		if w.Title != "" {
-			drawText(mem, w.Title, rect{left, cy, right, cy + titleH}, rgb(w.Accent), font(int(11*k)+1, true), dtLeft)
+			tl := left
+			if w.Dot {
+				roundRect(mem, rect{left, cy + titleH/2 - sc(4), left + sc(8), cy + titleH/2 + sc(4)}, sc(8), rgb(w.Accent), rgb(w.Accent))
+				tl += sc(14)
+			} else {
+				fillRect(mem, rect{left, cy + sc(5), left + sc(3), cy + titleH - sc(5)}, rgb(w.Accent))
+				tl += sc(9)
+			}
+			drawText(mem, w.Title, rect{tl, cy, right, cy + titleH}, rgb(w.Accent), fs(11, true), dtLeft)
 			cy += titleH
 		}
-		for _, l := range w.Lines {
-			lh := sc(21)
-			size := 13
-			if l.Size >= 16 {
-				lh, size = sc(28), l.Size
+		if len(w.Tiles) > 0 {
+			n := int32(len(w.Tiles))
+			gap := sc(8)
+			tw := (right - left - gap*(n-1)) / n
+			th := tileH - sc(8)
+			for i, t := range w.Tiles {
+				tx := left + int32(i)*(tw+gap)
+				roundRect(mem, rect{tx, cy, tx + tw, cy + th}, sc(12), tileBg, tileBg)
+				drawText(mem, t.Value, rect{tx + sc(10), cy + sc(6), tx + tw - sc(6), cy + sc(34)}, rgb(t.Color), fs(22, true), dtLeft)
+				drawText(mem, t.Label, rect{tx + sc(10), cy + sc(34), tx + tw - sc(6), cy + sc(50)}, muted, fs(11, false), dtLeft|dtEndEllipsis)
+				if t.Sub != "" {
+					drawText(mem, t.Sub, rect{tx + sc(10), cy + sc(50), tx + tw - sc(6), cy + sc(65)}, muted, fs(10.5, true), dtLeft|dtEndEllipsis)
+				}
 			}
-			f := font(int(float64(size)*k)+1, l.Bold)
+			cy += tileH
+		}
+		for _, l := range w.Lines {
+			lh := sc(24)
+			size := 13.0
+			if l.Size >= 16 {
+				lh, size = sc(28), float64(l.Size)
+			}
 			col := rgb(l.Color)
 			if l.Right != "" {
-				drawText(mem, l.Right, rect{left, cy, right, cy + lh}, col, f, dtRight)
-				drawText(mem, l.Text, rect{left, cy, right - sc(70), cy + lh}, col, font(int(float64(size)*k)+1, false), dtLeft|dtEndEllipsis)
+				roundRect(mem, rect{left, cy + sc(1), right, cy + lh - sc(1)}, sc(8), rowBg, rowBg)
+				drawText(mem, l.Right, rect{left + sc(8), cy, right - sc(8), cy + lh}, col, fs(size, true), dtRight)
+				drawText(mem, l.Text, rect{left + sc(8), cy, right - sc(70), cy + lh}, rgb("#E4E7FA"), fs(size, false), dtLeft|dtEndEllipsis)
 			} else {
-				drawText(mem, l.Text, rect{left, cy, right, cy + lh}, col, f, dtLeft|dtEndEllipsis)
+				drawText(mem, l.Text, rect{left + sc(2), cy, right, cy + lh}, col, fs(size, l.Bold), dtLeft|dtEndEllipsis)
 			}
 			cy += lh
 		}
+		hits = append(hits, hitRect{w.Key, rect{x, y, x + width, y + h}, w.Anchor == "center"})
 	}
+
+	// modalità modifica: contorni tratteggiati e istruzioni
+	if s.EditMode {
+		for _, hr := range hits {
+			if hr.key != "" {
+				dashRect(mem, hr.r, rgb("#38D6FF"))
+			}
+		}
+		msg := "MODALITÀ MODIFICA  ·  trascina gli elementi con il mouse  ·  disattivala da BetterStomp → Overlay"
+		f := fs(14, true)
+		tw := textWidth(mem, msg, f) + sc(40)
+		r := rect{ovW/2 - tw/2, sc(14), ovW/2 + tw/2, sc(14) + sc(36)}
+		roundRect(mem, r, sc(36), rgb("#8B6CFF"), rgb("#8B6CFF"))
+		drawText(mem, msg, r, rgb("#FFFFFF"), f, dtCenter)
+	}
+	ovHits = hits
 	pBitBlt.Call(hdc, 0, 0, uintptr(ovW), uintptr(ovH), mem, 0, 0, srcCopy)
 	pSelectObject.Call(mem, old)
 	pDeleteObject.Call(bmp)
 	pDeleteDC.Call(mem)
+}
+
+func clampXY(x, y, w, h int32) (int32, int32) {
+	if x+w > ovW {
+		x = ovW - w - 4
+	}
+	if y+h > ovH {
+		y = ovH - h - 4
+	}
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return x, y
+}
+
+// sposta un elemento: aggiorna la posizione nelle impostazioni (frazione dello schermo)
+func setWidgetPos(key string, fx, fy float64) {
+	clamp := func(v float64) float64 {
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
+	}
+	fx, fy = clamp(fx), clamp(fy)
+	settingsMu.Lock()
+	o := &settings.Overlay
+	var w *Widget
+	switch key {
+	case "cs":
+		w = &o.CS
+	case "objectives":
+		w = &o.Objectives
+	case "camps":
+		w = &o.Camps
+	case "buffs":
+		w = &o.Buffs
+	case "deaths":
+		w = &o.Deaths
+	case "itemDiff":
+		w = &o.ItemDiff
+	case "loading":
+		w = &o.Loading
+	}
+	if w != nil {
+		w.X, w.Y = fx, fy
+	}
+	settingsMu.Unlock()
+}
+
+func lparamXY(l uintptr) (int32, int32) {
+	return int32(int16(l & 0xFFFF)), int32(int16((l >> 16) & 0xFFFF))
 }
 
 func screenSize() (int32, int32) {
@@ -332,8 +513,9 @@ func overlayTick() {
 	s := getSettings().Overlay
 	d, _ := live.snapshot()
 	setHotkeys(s.Enabled && (d != nil || getClientState().Phase == "InProgress"))
-	ovModel = buildOverlayModel(false)
-	show := s.Enabled && !ovHidden && ovModel.Active && len(ovModel.Widgets) > 0
+	setEditStyle(s.EditMode)
+	ovModel = buildOverlayModel(s.EditMode)
+	show := (s.Enabled && !ovHidden && ovModel.Active && len(ovModel.Widgets) > 0) || s.EditMode
 	if show {
 		if !ovShown {
 			pShowWindow.Call(ovHwnd, swShowNA)
@@ -348,8 +530,66 @@ func overlayTick() {
 	}
 }
 
+var editStyle bool
+
+// in modalità modifica la finestra smette di essere "trasparente ai clic"
+func setEditStyle(on bool) {
+	if on == editStyle {
+		return
+	}
+	editStyle = on
+	gwlExStyle := ^uintptr(19) // -20
+	st, _, _ := pGetWindowLongPtr.Call(ovHwnd, gwlExStyle)
+	if on {
+		st &^= wsExTransparent
+	} else {
+		st |= wsExTransparent
+		dragKey = ""
+	}
+	pSetWindowLongPtr.Call(ovHwnd, gwlExStyle, st)
+}
+
 func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 	switch msg {
+	case 0x0020: // WM_SETCURSOR
+		if editStyle {
+			c, _, _ := pLoadCursor.Call(0, 32646) // IDC_SIZEALL
+			pSetCursor.Call(c)
+			return 1
+		}
+	case 0x0201: // WM_LBUTTONDOWN
+		if editStyle {
+			mx, my := lparamXY(lparam)
+			for i := len(ovHits) - 1; i >= 0; i-- {
+				h := ovHits[i]
+				if h.key != "" && mx >= h.r.l && mx <= h.r.r && my >= h.r.t && my <= h.r.b {
+					dragKey, dragOffX, dragOffY, dragW, dragC = h.key, mx-h.r.l, my-h.r.t, h.r.r-h.r.l, h.center
+					pSetCapture.Call(hwnd)
+					break
+				}
+			}
+		}
+		return 0
+	case 0x0200: // WM_MOUSEMOVE
+		if dragKey != "" {
+			mx, my := lparamXY(lparam)
+			l, t := mx-dragOffX, my-dragOffY
+			fx := float64(l) / float64(ovW)
+			if dragC {
+				fx = float64(l+dragW/2) / float64(ovW)
+			}
+			setWidgetPos(dragKey, fx, float64(t)/float64(ovH))
+			ovModel = buildOverlayModel(true)
+			pInvalidateRect.Call(hwnd, 0, 0)
+		}
+		return 0
+	case 0x0202: // WM_LBUTTONUP
+		if dragKey != "" {
+			dragKey = ""
+			pReleaseCapture.Call()
+			saveSettings(getSettings())
+		}
+		return 0
 	case wmEraseBkgnd:
 		return 1
 	case wmPaint:
@@ -374,6 +614,10 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			live.mu.Unlock()
 		case id == 21:
 			ovHidden = !ovHidden
+		case id == 22:
+			st := getSettings()
+			st.Overlay.Compact = !st.Overlay.Compact
+			saveSettings(st)
 		}
 		overlayTick()
 		return 0

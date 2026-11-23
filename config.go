@@ -49,6 +49,19 @@ type OverlaySettings struct {
 	MinimapRight  int     `json:"minimapRight"`  // distanza dal bordo destro
 	MinimapBottom int     `json:"minimapBottom"` // distanza dal bordo inferiore
 	Timers        Timers  `json:"timers"`
+	Compact       bool    `json:"compact"`     // versione riassunta su una riga
+	ShowKP        bool    `json:"showKP"`      // partecipazione alle uccisioni
+	CSGoal        string  `json:"csGoal"`      // off | elo | custom
+	CSGoalValue   float64 `json:"csGoalValue"` // CS/min se custom
+	CSGoalTier    string  `json:"csGoalTier"`  // elo di riferimento se elo
+	PillScale     float64 `json:"pillScale"`   // dimensione timer minimappa
+	EditMode      bool    `json:"editMode"`    // trascina gli elementi direttamente in gioco
+}
+
+type ProPlayer struct {
+	Label  string `json:"label"`  // nome da mostrare (es. "Faker")
+	RiotID string `json:"riotId"` // Nome#TAG dell'account
+	Region string `json:"region"`
 }
 
 type StreamSettings struct {
@@ -66,6 +79,7 @@ type Settings struct {
 	Theme          string          `json:"theme"`
 	Region         string          `json:"region"`
 	RiotAPIKey     string          `json:"riotApiKey"`
+	ProPlayers     []ProPlayer     `json:"proPlayers"`
 	EngineEnabled  bool            `json:"engineEnabled"`
 	AutoRunes      bool            `json:"autoRunes"`
 	AutoSpells     bool            `json:"autoSpells"`
@@ -89,12 +103,13 @@ func defaultSettings() Settings {
 			Enabled: true, Scale: 1,
 			CS:         Widget{true, 0.012, 0.30},
 			Objectives: Widget{true, 0.012, 0.38},
-			Camps:      Widget{true, 0.012, 0.55},
-			Buffs:      Widget{true, 0.40, 0.10},
-			Deaths:     Widget{true, 0.012, 0.78},
-			ItemDiff:   Widget{true, 0.39, 0.16},
-			Loading:    Widget{true, 0.5, 0.06},
-			Minimap:    true, MinimapSize: 280, MinimapRight: 6, MinimapBottom: 6,
+			ShowKP:     true, CSGoal: "elo", CSGoalValue: 7.5, CSGoalTier: "MASTER", PillScale: 0.7,
+			Camps:    Widget{true, 0.012, 0.55},
+			Buffs:    Widget{true, 0.40, 0.10},
+			Deaths:   Widget{true, 0.012, 0.78},
+			ItemDiff: Widget{true, 0.39, 0.16},
+			Loading:  Widget{true, 0.5, 0.24},
+			Minimap:  true, MinimapSize: 280, MinimapRight: 6, MinimapBottom: 6,
 			Timers: Timers{
 				DragonFirst: 300, DragonRespawn: 300, ElderRespawn: 360,
 				GrubsFirst: 480, HeraldFirst: 900, AtakhanFirst: 1200,
@@ -140,6 +155,13 @@ func loadSettings() {
 	if s.Overlay.Scale <= 0 {
 		s.Overlay.Scale = 1
 	}
+	if s.Overlay.PillScale <= 0 {
+		s.Overlay.PillScale = 0.7
+	}
+	if s.Overlay.CSGoal == "" {
+		s.Overlay.CSGoal, s.Overlay.CSGoalValue, s.Overlay.CSGoalTier, s.Overlay.ShowKP = "elo", 7.5, "MASTER", true
+	}
+	s.Overlay.EditMode = false
 	settingsMu.Lock()
 	settings = s
 	settingsMu.Unlock()

@@ -204,6 +204,17 @@ type OWidget struct {
 	Lines  []OLine `json:"lines"`
 	Pill   bool    `json:"pill,omitempty"`  // etichetta piccola sulla minimappa
 	Pixel  bool    `json:"pixel,omitempty"` // X/Y in pixel dal basso-destra (minimappa)
+	Key    string  `json:"key,omitempty"`   // impostazione da aggiornare quando lo trascini
+	Tiles  []OTile `json:"tiles,omitempty"` // riquadri grandi (CS/min, partecipazione)
+	Segs   []OLine `json:"segs,omitempty"`  // versione riassunta su una riga
+	Dot    bool    `json:"dot,omitempty"`
+}
+
+type OTile struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+	Sub   string `json:"sub,omitempty"`
+	Color string `json:"color"`
 }
 
 type OverlayModel struct {
@@ -286,18 +297,6 @@ func buildOverlayModel(preview bool) OverlayModel {
 		return ""
 	}
 
-	// CS in tempo reale
-	if o.CS.On && me != nil && !aram {
-		csmin := 0.0
-		if gt > 60 {
-			csmin = float64(me.Scores.CreepScore) / (gt / 60)
-		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "cs", X: o.CS.X, Y: o.CS.Y, Accent: colCyan, Width: 150, Lines: []OLine{
-			{Text: "CS", Right: fmt.Sprintf("%d", me.Scores.CreepScore), Color: colText, Bold: true, Size: 18},
-			{Text: "al minuto", Right: fmt.Sprintf("%.1f", csmin), Color: colMuted},
-		}})
-	}
-
 	t := o.Timers
 	// obiettivi epici dagli eventi di gioco
 	dragonNext, baronNext, heraldDone, grubsDone, atakhanDone := t.DragonFirst, t.BaronFirst, false, false, false
@@ -349,6 +348,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 		}
 		return OLine{Text: name, Right: mmss(at - gt), Color: c}
 	}
+	var objLines []OLine
 	if o.Objectives.On && !aram {
 		var lines []OLine
 		dn := "Drago"
@@ -366,9 +366,15 @@ func buildOverlayModel(preview bool) OverlayModel {
 			lines = append(lines, timerLine("Atakhan", t.AtakhanFirst, colBad))
 		}
 		lines = append(lines, timerLine("Barone", baronNext, colAccent))
-		m.Widgets = append(m.Widgets, OWidget{ID: "objectives", X: o.Objectives.X, Y: o.Objectives.Y, Title: "OBIETTIVI", Accent: colAccent, Width: 190, Lines: lines})
+		objLines = lines
+	}
+	if (o.CS.On || o.Objectives.On) && me != nil {
+		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, objLines))
 	}
 
+	if preview && baronBuffEnd == 0 {
+		baronBuffEnd = gt + 95 // esempio per l'anteprima
+	}
 	// scadenza buff Barone / Drago Antico
 	if o.Buffs.On {
 		var lines []OLine
@@ -387,7 +393,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			lines = append(lines, OLine{Text: "Buff Drago Antico", Right: mmss(elderBuffEnd - gt), Color: c, Bold: true})
 		}
 		if len(lines) > 0 {
-			m.Widgets = append(m.Widgets, OWidget{ID: "buffs", X: o.Buffs.X, Y: o.Buffs.Y, Anchor: "center", Title: "BUFF IN SCADENZA", Accent: colGold, Width: 230, Lines: lines})
+			m.Widgets = append(m.Widgets, OWidget{ID: "buffs", Key: "buffs", X: o.Buffs.X, Y: o.Buffs.Y, Anchor: "center", Title: "BUFF IN SCADENZA", Accent: colGold, Width: 230, Lines: lines})
 		}
 	}
 
@@ -428,7 +434,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			lines = append(lines, OLine{Text: "Lato nemico", Color: colBad, Bold: true})
 			lines = append(lines, enemy...)
 		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "camps", X: o.Camps.X, Y: o.Camps.Y, Title: "GIUNGLA", Accent: colGood, Width: 190, Lines: lines})
+		m.Widgets = append(m.Widgets, OWidget{ID: "camps", Key: "camps", X: o.Camps.X, Y: o.Camps.Y, Title: "GIUNGLA", Accent: colGood, Width: 190, Lines: lines})
 	}
 
 	// timer sulla minimappa, direttamente sopra i campi
@@ -476,7 +482,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			}
 			lines = append(lines, timerLine(fmt.Sprintf("Vita %d", i), at, colGood))
 		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "relics", X: o.Camps.X, Y: o.Camps.Y, Title: "VITE ARAM", Accent: colGood, Width: 170, Lines: lines})
+		m.Widgets = append(m.Widgets, OWidget{ID: "relics", Key: "camps", X: o.Camps.X, Y: o.Camps.Y, Title: "VITE ARAM", Accent: colGood, Width: 170, Lines: lines})
 	}
 	if o.Deaths.On {
 		var lines []OLine
@@ -490,7 +496,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			}
 		}
 		if len(lines) > 0 {
-			m.Widgets = append(m.Widgets, OWidget{ID: "deaths", X: o.Deaths.X, Y: o.Deaths.Y, Title: "RESPAWN", Accent: colBad, Width: 170, Lines: lines})
+			m.Widgets = append(m.Widgets, OWidget{ID: "deaths", Key: "deaths", X: o.Deaths.X, Y: o.Deaths.Y, Title: "RESPAWN", Accent: colBad, Width: 170, Lines: lines})
 		}
 	}
 
@@ -523,11 +529,19 @@ func buildOverlayModel(preview bool) OverlayModel {
 		if me != nil && opp != nil {
 			lines = append(lines, diffLine("vs "+opp.ChampionName, val(*me)-val(*opp)))
 		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "itemdiff", X: o.ItemDiff.X, Y: o.ItemDiff.Y, Anchor: "center", Title: "VALORE OGGETTI", Accent: colGold, Width: 220, Lines: lines})
+		m.Widgets = append(m.Widgets, OWidget{ID: "itemdiff", Key: "itemDiff", X: o.ItemDiff.X, Y: o.ItemDiff.Y, Anchor: "center", Title: "VALORE OGGETTI", Accent: colGold, Width: 220, Lines: lines})
 	}
 
+	if preview && o.Loading.On && len(getClientState().Lobby) == 0 {
+		m.Widgets = append(m.Widgets, loadingWidget([]LobbyPlayer{
+			{Name: "Tu", Champion: 103, Team: 1, Tier: "EMERALD", Division: "II", Wins: 61, Losses: 52},
+			{Name: "Alleato", Champion: 64, Team: 1, Tier: "PLATINUM", Division: "I", Wins: 40, Losses: 38},
+			{Name: "Avversario", Champion: 134, Team: 2, Tier: "EMERALD", Division: "III", Wins: 55, Losses: 50},
+			{Name: "Nemico", Champion: 122, Team: 2, Tier: "DIAMOND", Division: "IV", Wins: 90, Losses: 81},
+		}, o))
+	}
 	// statistiche squadre (Ctrl+T)
-	if showLoad && o.Loading.On {
+	if showLoad && o.Loading.On && !preview {
 		if lobby := getClientState().Lobby; len(lobby) > 0 {
 			m.Widgets = append(m.Widgets, loadingWidget(lobby, o))
 		}
@@ -601,7 +615,7 @@ func loadingWidget(lobby []LobbyPlayer, o OverlaySettings) OWidget {
 			lines = append(lines, OLine{Text: name, Right: rankShort(p.Tier, p.Division) + wr, Color: colText})
 		}
 	}
-	return OWidget{ID: "loading", X: o.Loading.X, Y: o.Loading.Y, Anchor: "center", Title: "STATISTICHE SQUADRE  ·  Ctrl+T", Accent: colAccent, Width: 520, Lines: lines}
+	return OWidget{ID: "loading", Key: "loading", X: o.Loading.X, Y: o.Loading.Y, Anchor: "center", Title: "STATISTICHE SQUADRE  ·  Ctrl+T", Accent: colAccent, Width: 520, Lines: lines}
 }
 
 func demoLive() *LiveData {
@@ -632,4 +646,99 @@ func demoLive() *LiveData {
 	d.AllPlayers[3].RespawnTimer = 21
 	d.Events.Events = []LiveEvent{{EventName: "DragonKill", EventTime: 420, KillerName: "A#1", DragonType: "Fire"}}
 	return d
+}
+
+// ---------- riquadro principale: CS, partecipazione e timer obiettivi ----------
+
+var (
+	benchMu  sync.Mutex
+	benchKey string
+	benchVal float64
+	benchOK  bool
+	benchAt  time.Time
+)
+
+func csTarget(o OverlaySettings, me *LivePlayer) (float64, string) {
+	switch o.CSGoal {
+	case "custom":
+		return o.CSGoalValue, "obiettivo"
+	case "elo":
+		tier := o.CSGoalTier
+		if tier == "" || tier == "auto" {
+			tier = strings.TrimSuffix(autoTier(), "+")
+		}
+		key := me.ChampionName + "|" + me.Position + "|" + tier
+		benchMu.Lock()
+		defer benchMu.Unlock()
+		if key != benchKey || time.Since(benchAt) > time.Minute {
+			benchVal, benchOK = engine.CSBenchmark(champByName(me.ChampionName), me.Position, tier)
+			benchKey, benchAt = key, time.Now()
+		}
+		name := tierIT[tier]
+		if name == "" {
+			name = "media"
+		}
+		if !benchOK {
+			name += "*"
+		}
+		return benchVal, name
+	}
+	return 0, ""
+}
+
+func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj []OLine) OWidget {
+	w := OWidget{ID: "main", Key: "cs", X: o.CS.X, Y: o.CS.Y, Title: "BETTER STOMP", Accent: colCyan, Width: 250, Dot: true}
+	csmin := 0.0
+	if gt > 60 {
+		csmin = float64(me.Scores.CreepScore) / (gt / 60)
+	}
+	teamK := 0
+	for _, p := range d.AllPlayers {
+		if p.Team == me.Team {
+			teamK += p.Scores.Kills
+		}
+	}
+	kp := 0
+	if teamK > 0 {
+		kp = (me.Scores.Kills + me.Scores.Assists) * 100 / teamK
+	}
+	target, tname := csTarget(o, me)
+	csCol, sub := colText, ""
+	if target > 0 && gt > 90 {
+		switch {
+		case csmin >= target:
+			csCol = colGood
+		case csmin >= target*0.9:
+			csCol = colGold
+		default:
+			csCol = colBad
+		}
+		sub = fmt.Sprintf("%s: %.1f", tname, target)
+	}
+	if o.CS.On {
+		w.Tiles = append(w.Tiles, OTile{Value: fmt.Sprintf("%.1f", csmin), Label: fmt.Sprintf("CS/min · %d CS", me.Scores.CreepScore), Sub: sub, Color: csCol})
+		if o.ShowKP {
+			w.Tiles = append(w.Tiles, OTile{Value: fmt.Sprintf("%d%%", kp), Label: "Partecipazione", Color: colText})
+		}
+	}
+	w.Lines = obj
+	if o.Compact {
+		w.Title, w.Lines, w.Tiles = "", nil, nil
+		if o.CS.On {
+			w.Segs = append(w.Segs, OLine{Text: fmt.Sprintf("%.1f", csmin), Color: csCol, Bold: true}, OLine{Text: "CS/min", Color: colMuted})
+			if sub != "" {
+				w.Segs = append(w.Segs, OLine{Text: "(" + sub + ")", Color: colMuted})
+			}
+			if o.ShowKP {
+				w.Segs = append(w.Segs, OLine{Text: "KP", Color: colMuted}, OLine{Text: fmt.Sprintf("%d%%", kp), Color: colText, Bold: true})
+			}
+		}
+		for i, l := range obj {
+			if i == 0 && len(w.Segs) > 0 {
+				w.Segs = append(w.Segs, OLine{Text: "·", Color: colMuted})
+			}
+			w.Segs = append(w.Segs, OLine{Text: l.Text, Color: colText}, OLine{Text: strings.ToLower(l.Right), Color: l.Color, Bold: true})
+		}
+	}
+	return w
 }

@@ -463,7 +463,14 @@ func importBuild(champ int, pos, mode string, runes, spells, items bool, variant
 	if !lcu.isConnected() {
 		return "Client di League non connesso"
 	}
-	b := resolveBuild(champ, pos, mode, "", true, variant)
+	return importResolved(champ, pos, resolveBuild(champ, pos, mode, "", true, variant), runes, spells, items)
+}
+
+// importa una build già pronta (es. quella di un pro scelta in champion select)
+func importResolved(champ int, pos string, b BuildResult, runes, spells, items bool) string {
+	if !lcu.isConnected() {
+		return "Client di League non connesso"
+	}
 	var done []string
 	var errs []string
 	if runes {

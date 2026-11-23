@@ -74,6 +74,7 @@ type ChampAgg struct {
 	Runes  map[string]*Stat `json:"runes"`
 	Spells map[string]*Stat `json:"spells"`
 	Skills map[string]*Stat `json:"skills"`
+	Seq    map[string]*Stat `json:"seq"`    // ordine completo dei primi 15 livelli
 	Builds map[string]*Stat `json:"builds"` // varianti: "stivali:ogg1,ogg2,ogg3"
 	Lane   map[int]*Stat    `json:"lane"`
 	Vs     map[int]*Stat    `json:"vs"`
@@ -87,7 +88,7 @@ type ChampAgg struct {
 
 func newAgg() *ChampAgg {
 	return &ChampAgg{Items: map[int]*Stat{}, Boots: map[int]*Stat{}, Start: map[string]*Stat{}, Runes: map[string]*Stat{},
-		Spells: map[string]*Stat{}, Skills: map[string]*Stat{}, Builds: map[string]*Stat{}, Lane: map[int]*Stat{}, Vs: map[int]*Stat{}, With: map[int]*Stat{}}
+		Spells: map[string]*Stat{}, Skills: map[string]*Stat{}, Seq: map[string]*Stat{}, Builds: map[string]*Stat{}, Lane: map[int]*Stat{}, Vs: map[int]*Stat{}, With: map[int]*Stat{}}
 }
 
 // file salvati da versioni precedenti possono non avere alcune mappe
@@ -107,6 +108,9 @@ func fixAgg(a *ChampAgg) {
 	}
 	if a.Spells == nil {
 		a.Spells = n.Spells
+	}
+	if a.Seq == nil {
+		a.Seq = n.Seq
 	}
 	if a.Skills == nil {
 		a.Skills = n.Skills
@@ -170,6 +174,7 @@ func (a *ChampAgg) merge(o *ChampAgg) {
 	mergeS(a.Runes, o.Runes)
 	mergeS(a.Spells, o.Spells)
 	mergeS(a.Skills, o.Skills)
+	mergeS(a.Seq, o.Seq)
 	mergeS(a.Builds, o.Builds)
 	mergeI(a.Lane, o.Lane)
 	mergeI(a.Vs, o.Vs)
@@ -204,10 +209,83 @@ type DB struct {
 	Buckets map[string]*Bucket `json:"buckets"`
 	Seen    map[string]bool    `json:"seen"`
 	Total   int                `json:"total"`
+	Pro     map[int][]ProGame  `json:"pro"` // partite recenti di pro e giocatori Master+ per campione
+}
+
+type ProGame struct {
+	Name   string `json:"name"`
+	Tag    string `json:"tag"`
+	Tier   string `json:"tier"`
+	Pro    bool   `json:"pro"`
+	Region string `json:"region"`
+	Champ  int    `json:"champ"`
+	Pos    string `json:"pos"`
+	Opp    int    `json:"opp"`
+	Win    bool   `json:"win"`
+	Items  []int  `json:"items"`
+	Start  []int  `json:"start"`
+	Runes  string `json:"runes"`
+	Spells []int  `json:"spells"`
+	Seq    string `json:"seq"`
+	Mode   string `json:"mode"`
+	When   int64  `json:"when"`
+	Match  string `json:"match"`
+}
+
+// aggiunge una partita alla lista (max 30 per campione, la più recente prima)
+func (db *DB) addPro(g ProGame) {
+	if db.Pro == nil {
+		db.Pro = map[int][]ProGame{}
+	}
+	list := db.Pro[g.Champ]
+	for _, x := range list {
+		if x.Match == g.Match && x.Name == g.Name {
+			return
+		}
+	}
+	list = append(list, g)
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Pro != list[j].Pro && (len(list) > 30) {
+			return list[i].Pro
+		}
+		return list[i].When > list[j].When
+	})
+	if len(list) > 30 {
+		list = list[:30]
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].When > list[j].When })
+	db.Pro[g.Champ] = list
+}
+
+func proGameFrom(m *MMatch, p MParticipant, tier, region, mode string, pro bool, starts, skills []int) ProGame {
+	g := ProGame{Name: p.GameName, Tag: p.Tag, Tier: tier, Pro: pro, Region: region, Champ: p.ChampionID, Pos: p.TeamPos,
+		Win: p.Win, Runes: runeKey(p), Spells: []int{p.Spell1, p.Spell2}, Mode: mode, When: m.Info.Start + int64(m.Info.Duration)*1000, Match: m.Metadata.MatchID}
+	if g.Name == "" {
+		g.Name = p.SummName
+	}
+	for _, it := range p.items()[:6] {
+		if it > 0 {
+			g.Items = append(g.Items, it)
+		}
+	}
+	g.Start = starts
+	if len(skills) >= 6 {
+		n := len(skills)
+		if n > 18 {
+			n = 18
+		}
+		g.Seq = seqKey(skills[:n])
+	}
+	for _, o := range m.Info.Participants {
+		if o.TeamID != p.TeamID && o.TeamPos != "" && o.TeamPos == p.TeamPos {
+			g.Opp = o.ChampionID
+		}
+	}
+	return g
 }
 
 func newDB(p string) *DB {
-	return &DB{Patch: p, Buckets: map[string]*Bucket{}, Seen: map[string]bool{}}
+	return &DB{Patch: p, Buckets: map[string]*Bucket{}, Seen: map[string]bool{}, Pro: map[int][]ProGame{}}
 }
 
 type Engine struct {
@@ -348,6 +426,101 @@ func (e *Engine) seedPlayer(platform, tier string) (string, error) {
 	return ids[0], nil
 }
 
+var (
+	proIdx   int
+	proPuuid = map[string]string{}
+	lastPro  time.Time
+)
+
+// segue i pro player inseriti dall'utente (Impostazioni → Pro player): ogni 3 minuti uno
+func crawlPro(s Settings) {
+	if len(s.ProPlayers) == 0 || time.Since(lastPro) < 3*time.Minute {
+		return
+	}
+	lastPro = time.Now()
+	pp := s.ProPlayers[proIdx%len(s.ProPlayers)]
+	proIdx++
+	region := pp.Region
+	if region == "" {
+		region = s.Region
+	}
+	parts := strings.SplitN(pp.RiotID, "#", 2)
+	if len(parts) != 2 {
+		return
+	}
+	key := strings.ToLower(pp.RiotID + "@" + region)
+	puuid := proPuuid[key]
+	if puuid == "" {
+		acc, err := riotAccountByID(region, strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		if err != nil {
+			return
+		}
+		puuid = acc.Puuid
+		proPuuid[key] = puuid
+	}
+	ids, err := riotMatchIDs(region, puuid, 5, 0)
+	if err != nil {
+		return
+	}
+	for _, id := range ids {
+		engine.mu.RLock()
+		known := false
+		for _, list := range engine.db.Pro {
+			for _, g := range list {
+				if g.Match == id && g.Pro {
+					known = true
+				}
+			}
+		}
+		engine.mu.RUnlock()
+		if known {
+			continue
+		}
+		m, err := riotMatch(region, id)
+		if err != nil {
+			return
+		}
+		mode := queueGroup(m.Info.QueueID, m.Info.GameMode)
+		if mode == "" || m.Info.Duration < 300 {
+			continue
+		}
+		var starts, skills []int
+		pid := 0
+		for i, p := range m.Info.Participants {
+			if p.Puuid == puuid {
+				pid = i + 1
+			}
+		}
+		if pid == 0 {
+			continue
+		}
+		if tl, err := riotTimeline(region, id); err == nil {
+			for _, f := range tl.Info.Frames {
+				for _, ev := range f.Events {
+					if ev.ParticipantID != pid {
+						continue
+					}
+					if ev.Type == "ITEM_PURCHASED" && ev.Timestamp < 65000 && ev.ItemID != 3340 {
+						starts = append(starts, ev.ItemID)
+					}
+					if ev.Type == "SKILL_LEVEL_UP" && (ev.LevelUpType == "NORMAL" || ev.LevelUpType == "") {
+						skills = append(skills, ev.SkillSlot)
+					}
+				}
+			}
+		}
+		p := m.Info.Participants[pid-1]
+		g := proGameFrom(m, p, "PRO", region, mode, true, starts, skills)
+		if pp.Label != "" {
+			g.Name = pp.Label
+		}
+		engine.mu.Lock()
+		engine.db.addPro(g)
+		engine.dirty = true
+		engine.mu.Unlock()
+	}
+}
+
 func engineLoop() {
 	tierIdx := rand.Intn(len(Tiers))
 	lastSave := time.Now()
@@ -372,6 +545,7 @@ func engineLoop() {
 		}
 		engine.mu.Unlock()
 
+		crawlPro(s)
 		tier := Tiers[tierIdx%len(Tiers)]
 		tierIdx++
 		puuid, err := engine.seedPlayer(s.Region, tier)
@@ -550,6 +724,12 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 		}
 		if sk := skills[i+1]; len(sk) >= 9 {
 			addS(a.Skills, skillKey(sk), p.Win)
+			if len(sk) >= 15 {
+				addS(a.Seq, seqKey(sk[:15]), p.Win)
+			}
+		}
+		if tier == "MASTER" || tier == "GRANDMASTER" || tier == "CHALLENGER" {
+			e.db.addPro(proGameFrom(m, p, tier, getSettings().Region, mode, false, starts[i+1], skills[i+1]))
 		}
 		if arena {
 			continue
@@ -569,6 +749,17 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 		}
 	}
 	e.cache = map[string]cachedBucket{}
+}
+
+func seqKey(seq []int) string {
+	l := map[int]byte{1: 'Q', 2: 'W', 3: 'E', 4: 'R'}
+	b := make([]byte, 0, len(seq))
+	for _, x := range seq {
+		if c, ok := l[x]; ok {
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }
 
 // ordine abilità: "Q>E>W|QEW" (priorità di massimizzazione | prime tre)
@@ -793,6 +984,10 @@ type BuildVariant struct {
 }
 
 type BuildResult struct {
+	SkillSeq    string          `json:"skillSeq"`
+	SkillSeqWR  float64         `json:"skillSeqWR"`
+	SkillSeqN   int             `json:"skillSeqN"`
+	ProGames    []ProGame       `json:"proGames"`
 	Champion    int             `json:"champion"`
 	Position    string          `json:"position"`
 	Positions   []PosShare      `json:"positions"`
@@ -860,6 +1055,30 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	r := BuildResult{Champion: champ, Mode: mode, Tier: tf, ItemWR: map[int]float64{}}
 	if e.db == nil {
 		return r
+	}
+	// partite recenti di pro (lista dell'utente) e giocatori Master+ con questo campione
+	seenPG := map[string]bool{}
+	for _, db := range []*DB{e.db, e.prev} {
+		if db == nil {
+			continue
+		}
+		for _, g := range db.Pro[champ] {
+			k := g.Match + g.Name
+			if seenPG[k] || (g.Mode != "" && g.Mode != mode && !(positional(mode) && positional(g.Mode))) {
+				continue
+			}
+			seenPG[k] = true
+			r.ProGames = append(r.ProGames, g)
+		}
+	}
+	sort.SliceStable(r.ProGames, func(i, j int) bool {
+		if r.ProGames[i].Pro != r.ProGames[j].Pro {
+			return r.ProGames[i].Pro
+		}
+		return r.ProGames[i].When > r.ProGames[j].When
+	})
+	if len(r.ProGames) > 15 {
+		r.ProGames = r.ProGames[:15]
 	}
 	try := func(db *DB, tiers []string) (*Bucket, *ChampAgg, string) {
 		b := e.merged(db, mode, tiers)
@@ -992,7 +1211,7 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	minB := int(math.Max(2, float64(tot)*0.03))
 	usedLead := map[int]bool{}
 	for _, x := range bk {
-		if len(r.Variants) >= 4 || x.s.N < minB {
+		if len(r.Variants) >= 6 || x.s.N < minB {
 			break
 		}
 		parts := strings.SplitN(x.k, ":", 2)
@@ -1067,6 +1286,9 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	if k, s := topS(a.Skills, 1); s != nil {
 		parts := strings.SplitN(k, "|", 2)
 		r.Skills = parts[0]
+		if k2, s2 := topS(a.Seq, 1); s2 != nil {
+			r.SkillSeq, r.SkillSeqN, r.SkillSeqWR = k2, s2.N, float64(s2.W)/float64(s2.N)
+		}
 		if len(parts) > 1 {
 			r.SkillFirst = parts[1]
 		}
@@ -1271,4 +1493,47 @@ func (e *Engine) Status() EngineStatus {
 		st.PerHour = int(float64(e.session) / time.Since(e.started).Hours())
 	}
 	return st
+}
+
+// CS al minuto medi per campione/ruolo nell'elo scelto (dalle partite analizzate)
+var csRef = map[string]float64{"IRON": 4.6, "BRONZE": 5.0, "SILVER": 5.4, "GOLD": 5.9, "PLATINUM": 6.3, "EMERALD": 6.7, "DIAMOND": 7.1, "MASTER": 7.5, "GRANDMASTER": 7.8, "CHALLENGER": 8.1}
+
+func (e *Engine) CSBenchmark(champ int, pos, tier string) (float64, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	fallback := func() (float64, bool) {
+		v := csRef[strings.TrimSuffix(tier, "+")]
+		if v == 0 {
+			v = 6.5
+		}
+		if pos == "JUNGLE" {
+			v *= 0.82
+		}
+		if pos == "UTILITY" {
+			v = 1.2
+		}
+		return v, false
+	}
+	if e.db == nil {
+		return fallback()
+	}
+	b := e.merged(e.db, "ranked", []string{strings.TrimSuffix(tier, "+")})
+	var cs, dur int64
+	if a := b.Champs[fmt.Sprintf("%d|%s", champ, pos)]; a != nil && a.N >= 15 {
+		cs, dur = a.CS, a.Dur
+	} else {
+		for k, a := range b.Champs {
+			if _, p := splitKey(k); p == pos {
+				cs += a.CS
+				dur += a.Dur
+			}
+		}
+		if dur < 60*60*30 { // meno di ~30 partite di quel ruolo
+			return fallback()
+		}
+	}
+	if dur == 0 {
+		return fallback()
+	}
+	return float64(cs) / (float64(dur) / 60), true
 }

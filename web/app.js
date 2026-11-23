@@ -76,13 +76,17 @@ function put(el, html, soft){
 }
 
 /* ---------- impostazioni (salvate al volo, senza ricaricare) ---------- */
-let saveTimer;
+let saveTimer, pending = {};
 function setSetting(path, value){
   setPath(S.settings, path, value);
+  pending[path] = value;
   applyTheme();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>api('/api/settings', S.settings).catch(e=>toast('Errore salvataggio: '+e.message)), 250);
-  document.dispatchEvent(new CustomEvent('settings', {detail:path}));
+  saveTimer = setTimeout(async ()=>{
+    const send = pending; pending = {};
+    try{ const ns = await api('/api/settings/patch', send); if(!Object.keys(pending).length) S.settings = ns; }
+    catch(e){ toast('Errore salvataggio: '+e.message); }
+  }, 200);
 }
 function applyTheme(){
   const s = S.settings||{};
@@ -144,39 +148,63 @@ async function poll(){
   if(route()[0]==='tier' && S.ui.tierEmpty && S.st.engine.total>0){ S.ui.tierEmpty=false; render(true); }
 }
 
-/* ---------- sidebar: riepilogo account ---------- */
+/* ---------- sidebar: riepilogo account (stile Blitz) ---------- */
+const TIER_COL = {IRON:'#9a8f8b',BRONZE:'#c8865a',SILVER:'#b4c0cf',GOLD:'#f0c25a',PLATINUM:'#3fd0c9',EMERALD:'#3ee6a0',DIAMOND:'#7aa7ff',MASTER:'#c77dff',GRANDMASTER:'#ff6b81',CHALLENGER:'#ffd76a'};
+function rankLine(n, q){
+  const ok = q && q.tier && q.tier!=='NONE';
+  return `<div class="rkline">${ok?`<img src="${CD}${q.tier.toLowerCase()}.png" onerror="this.style.visibility='hidden'">`:'<span class="rkph"></span>'}<span class="muted sp">${n}</span>
+    ${ok?`<b style="color:${TIER_COL[q.tier]}">${rankTxt(q)} ${q.leaguePoints} LP</b>`:'<span class="dim">Non classificato</span>'}</div>`;
+}
+function recentStrip(p){
+  const ms = (p.matches||[]).filter(m=>!m.remake);
+  if(!ms.length) return '';
+  const mode = ms[0].queue, list = ms.filter(m=>m.queue===mode).slice(0,10);
+  const w = list.filter(m=>m.me.win).length, l = list.length-w;
+  return `<div class="card side-card"><h3>${esc(qName(mode))} <span class="dim small">(ultime ${list.length})</span></h3>
+    <div class="row small" style="margin-top:6px"><b class="${w/list.length>=.5?'good':'bad'}">${pct(w/list.length)} WR</b><span class="muted">${w}V - ${l}S</span></div>
+    <div class="bar" style="margin:6px 0 10px"><i style="width:${w/list.length*100}%"></i></div>
+    <div class="recent">${list.map(m=>`<span class="rc"><img src="${cImg(m.me.champ)}" title="${esc(champ(m.me.champ).name)} · ${m.me.k}/${m.me.d}/${m.me.a}"><i class="${m.me.win?'w':'l'}"></i></span>`).join('')}</div></div>`;
+}
 function renderSide(){
   const c = S.st?.client; const el = $('#side');
+  const more = S.ui.sideMore||{};
   let h = '';
   if(c && c.connected && c.summoner){
-    const s = c.summoner, solo = c.ranked?.RANKED_SOLO_5x5, flex = c.ranked?.RANKED_FLEX_SR;
-    const p = S.profile;
-    const games = solo ? solo.wins+solo.losses : 0;
-    h += `<div class="card acc"><div class="av"><img src="${profImg(s.profileIconId)}"><span class="lvl">${s.summonerLevel}</span></div>
-      <div class="name">${esc(s.gameName)} <span class="tag">#${esc(s.tagLine)}</span></div>
-      <div class="col mt">
-        ${[['Solo/Duo',solo],['Flex',flex]].map(([n,q])=>`<div class="rankmini">${q&&q.tier&&q.tier!=='NONE'?`<img src="${CD}${q.tier.toLowerCase()}.png" onerror="this.style.visibility='hidden'">`:'<span style="width:46px"></span>'}
-          <div class="sp"><div class="tiny dim b">${n.toUpperCase()}</div><div class="b">${rankTxt(q)}</div>
-          ${q&&q.tier&&q.tier!=='NONE'?`<div class="small muted">${q.leaguePoints} LP · ${q.wins}V ${q.losses}S · ${pct(q.wins/Math.max(1,q.wins+q.losses),0)}</div>`:''}</div></div>`).join('')}
-      </div>
-      <div class="mt" style="text-align:left">
-        <div class="kv"><span class="muted">Ruolo principale</span><b>${p? (p.roles.enough? POS[p.roles.main]+(p.roles.second?' / '+POS[p.roles.second]:'') : `<span class="dim">${p.roles.games}/${p.roles.needed} partite</span>`) : '…'}</b></div>
-        <div class="kv"><span class="muted">Oggi (Solo/Duo)</span><b>${p? `<span class="good">${p.today.w}V</span> <span class="bad">${p.today.l}S</span>`:'…'}</b></div>
-        <div class="kv"><span class="muted">Campione più giocato</span><b>${p&&p.champs?.[0]? esc(champ(p.champs[0].champion).name):'…'}</b></div>
-      </div></div>`;
+    const s = c.summoner, p = S.profile;
+    h += `<div class="side-head"><div class="av3"><img src="${profImg(s.profileIconId)}"><span class="lvl">${s.summonerLevel}</span></div>
+      <div><div class="name">${esc(s.gameName)} <span class="dim">#${esc(s.tagLine)}</span></div>
+      <div class="tiny muted">${p? (p.roles.enough? 'Ruolo: '+POS[p.roles.main]+(p.roles.second?' / '+POS[p.roles.second]:'') : `Ruolo: servono 20 partite (${p.roles.games}/20)`) : 'Carico il profilo…'}</div></div></div>`;
+    if(p) h += recentStrip(p);
+    h += `<div class="ad side-ad">Spazio pubblicitario<br>300 × 250</div>`;
+    h += `<div class="card side-card">${rankLine('Classificata Solo/Duo', c.ranked?.RANKED_SOLO_5x5)}${rankLine('Classificata Flex', c.ranked?.RANKED_FLEX_SR)}
+      ${p?`<div class="rkline"><span class="rkph">📅</span><span class="muted sp">Oggi (Solo/Duo)</span><b><span class="good">${p.today.w}V</span> - <span class="bad">${p.today.l}S</span></b></div>`:''}</div>`;
+    if(p?.champs?.length){
+      const list = p.champs.slice(0, more.champs?10:4);
+      h += `<div class="card side-card"><h3>Rendimento campioni</h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
+        <div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny dim">${x.kda.toFixed(1).replace('.',',')} KDA</div></div>
+        <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
+        ${p.champs.length>4?`<button class="showmore" data-act="sidemore" data-k="champs">${more.champs?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
+    }
+    if(p?.premades?.length){
+      const list = p.premades.slice(0, more.mates?12:4);
+      h += `<div class="card side-card"><h3>Giocato di recente con</h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="lookup" data-id="${esc(x.name+'#'+x.tag)}"><span class="av2">${esc((x.name||'?').slice(0,2).toUpperCase())}</span>
+        <div class="sp" style="min-width:0"><b class="ell">${esc(x.name)}<span class="dim">#${esc(x.tag)}</span></b><div class="tiny dim">${x.games} partite</div></div>
+        <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr,0)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
+        ${p.premades.length>4?`<button class="showmore" data-act="sidemore" data-k="mates">${more.mates?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
+    }
   } else {
     h += `<div class="card acc"><img class="welcome-logo" src="logo.png" alt="BetterStomp"><div class="name">Benvenuto</div>
-      <p class="muted small">Apri il client di League of Legends: BetterStomp lo rileva da solo e mostra qui il riepilogo del tuo account.</p></div>`;
+      <p class="muted small">Apri il client di League of Legends: BetterStomp lo rileva da solo e mostra qui il riepilogo del tuo account.</p></div>
+      <div class="ad side-ad">Spazio pubblicitario<br>300 × 250</div>`;
   }
   const e = S.st?.engine;
   if(e){
-    h += `<div class="card flat"><div class="kicker">Motore statistiche</div>
+    h += `<div class="card side-card"><div class="kicker">Motore statistiche</div>
       ${!e.hasKey?`<p class="small muted">Inserisci una chiave Riot API in <a href="#/impostazioni">Impostazioni</a> per sbloccare tier list, win rate e build per rango.</p>`
-      : `<div class="row mt"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total)}</b><span class="muted small">partite analizzate · patch ${esc(e.patch||'-')}</span></div>
-         ${e.error?`<div class="small bad mt">${esc(e.error)}</div>`:''}`}
-    </div>`;
+      : `<div class="row" style="margin-top:8px"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total)}</b><span class="muted small">partite · patch ${esc(e.patch||'-')}</span></div>
+         ${e.error?`<div class="small bad mt">${esc(e.error)}</div>`:''}`}</div>`;
   }
-  h += `<div class="ad short">Spazio pubblicitario</div>`;
+  h += `<a class="premcta" href="#/premium"><span class="small">Niente pubblicità</span><b>Passa a BetterStomp Premium</b></a>`;
   if(el._h !== h){ put(el, h, !!el._h); el._h = h; }
 }
 
@@ -338,7 +366,8 @@ async function pageChampion(m, r, soft){
       <div class="card"><div class="ctitle"><h2>Build</h2>${b.personal?'<span class="badge goldc">Build personale</span>':''}<span class="sp"></span>
         <button class="btn sm" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>Importa nel client</button>
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'Modifica build personale'}</button></div>
-        <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div></div>
+        <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div>
+        ${b.skillSeq?`<div class="blocklbl"><span>Ordine abilità completo</span><span class="small muted">${pct(b.skillSeqWR)} WR · ${num(b.skillSeqN)} partite</span></div>${skillGridHTML(b.skillSeq)}`:''}</div>
       <div class="card"><h2>Abilità</h2>${detail? abilitiesHTML(detail.data[c.id]) : '<div class="muted">Non disponibili.</div>'}</div>
     </div>
     <div class="col gap16">
@@ -346,6 +375,7 @@ async function pageChampion(m, r, soft){
         ${b.runesAlt?`<details class="mt"><summary class="small muted" style="cursor:pointer">Alternativa (${pct(b.runesAlt.winRate)} WR)</summary><div class="mt">${runesHTML(b.runesAlt)}</div></details>`:''}</div>
       <div class="card"><h2>Matchup</h2>${pairsHTML('Più facili',b.best,'good')}${pairsHTML('Più difficili',b.worst,'bad')}${pairsHTML('Sinergie migliori',b.synergy,'good')}
         ${!b.best?.length&&!b.worst?.length?'<div class="muted small">Servono più partite analizzate per i matchup.</div>':''}</div>
+      <div class="card"><h2>Pro e Master+</h2><div class="col gap6">${proRowsHTML((b.proGames||[]).slice(0,6), false)}</div></div>
       ${prof?`<div class="card"><h2>Le tue partite</h2><div class="stats"><div class="stat"><div class="k">Partite</div><div class="v">${prof.games}</div></div>
         <div class="stat"><div class="k">Win rate</div><div class="v ${prof.wins/prof.games>=.5?'good':'bad'}">${pct(prof.wins/prof.games,0)}</div></div><div class="stat"><div class="k">KDA</div><div class="v">${prof.kda.toFixed(2).replace('.',',')}</div></div></div></div>`:''}
       <div class="card flat"><div class="kicker mb">Approfondisci</div><div class="row wrap">
@@ -448,91 +478,182 @@ function pageSelect(m, r, soft){
   const u = S.ui;
   if(soft && $('#selpage')){ updateSelect(true, true); return; }
   u.skind = u.skind||'matchup'; u.over = u.over||{}; u.sbuildKey=''; u.suggLoaded=false;
+  u.stab = u.stab||'build'; u.vsort = u.vsort||'best'; u.selTier = u.selTier||'auto';
   m.innerHTML = `<div class="page" id="selpage"><div class="card glow"><div class="row mb"><h1>Champion Select</h1><span class="sp"></span><span id="selphase" class="badge"></span></div>
       <div class="teams" id="teams"></div><div class="row mt small muted" id="bans"></div></div>
-    <div class="grid2 mt2" style="grid-template-columns:1fr 1fr">
-      <div class="card"><div class="ctitle"><h2>Scegli il campione</h2><span class="sp"></span>
-        <div class="seg"><button data-act="skind" data-k="matchup" class="${u.skind==='matchup'?'on':''}">Per matchup</button><button data-act="skind" data-k="team" class="${u.skind==='team'?'on':''}">Per team comp</button></div></div>
-        <div class="filters" id="sfilters"></div><div id="sugg"></div></div>
-      <div class="card"><div class="ctitle"><h2>La tua build</h2><span class="sp"></span><span id="impmsg" class="small muted"></span></div><div id="selbuild"></div></div>
-    </div></div>`;
+    <div class="cstool mt2" id="cstool"></div>
+    <div id="csbody" class="mt"></div>
+    <details class="card flat mt2"><summary class="b" style="cursor:pointer">Import automatico quando blocchi il campione</summary><div id="autobox"></div></details>
+  </div>`;
+  $('#autobox').innerHTML = autoBox(true);
   updateSelect(true);
 }
 pageSelect.soft = true;
+
 function selState(){
   const c = S.st?.client, cs = c?.champSelect, u = S.ui;
   const mine = [], theirs = [];
-  let myPos = '', myChamp = 0, myCell = -1;
+  let myPos = '', myChamp = 0, meIdx = 0;
   if(cs){
-    cs.myTeam.forEach((p,i)=>{ const ch = p.championId||p.championPickIntent; mine.push({champ:u.over['a'+i]||ch, pos:p.assignedPosition?.toUpperCase()||'', name:p.gameName||'', me:p.cellId===cs.localPlayerCellId}); });
+    cs.myTeam.forEach((p,i)=>{ const ch = p.championId||p.championPickIntent; const me = p.cellId===cs.localPlayerCellId; if(me) meIdx=i;
+      mine.push({champ:u.over['a'+i]||ch, pos:p.assignedPosition?.toUpperCase()||'', name:p.gameName||'', me}); });
     cs.theirTeam.forEach((p,i)=>theirs.push({champ:u.over['e'+i]||p.championId, pos:''}));
-    myPos = cs.myPosition; myChamp = cs.myChampion; myCell = cs.localPlayerCellId;
+    myPos = cs.myPosition; myChamp = cs.myChampion;
   } else {
     for(let i=0;i<5;i++){ mine.push({champ:u.over['a'+i]||0,pos:'',me:i===0}); theirs.push({champ:u.over['e'+i]||0}); }
   }
-  const me = mine.find(x=>x.me); if(me && u.over['a'+mine.indexOf(me)]) myChamp = me.champ;
+  if(u.over['a'+meIdx]) myChamp = u.over['a'+meIdx];
   const posMap = {top:'TOP',jungle:'JUNGLE',middle:'MIDDLE',bottom:'BOTTOM',utility:'UTILITY'};
-  return {cs, mine, theirs, myPos: u.spos || posMap[(myPos||'').toLowerCase()] || (S.profile?.roles?.main) || 'MIDDLE', myChamp, mode: queueMode(c?.queueId)};
+  return {cs, mine, theirs, meIdx, myPos: u.spos || posMap[(myPos||'').toLowerCase()] || (S.profile?.roles?.main) || 'MIDDLE', myChamp, mode: queueMode(c?.queueId)};
 }
 function queueMode(q){ return {420:'ranked',440:'flex',400:'normal',430:'normal',490:'normal',450:'aram',2400:'mayhem',1700:'arena',1710:'arena',900:'urf',1900:'urf'}[q] || S.ui.smode || 'ranked'; }
+
 function updateSelect(force, soft){
   if(!$('#selpage')) return;
   const s = selState(), u = S.ui;
-  const sig = JSON.stringify([s.mine,s.theirs,s.myPos,s.mode,u.skind,u.sopp,s.cs?.bans,s.myChamp]);
+  const sig = JSON.stringify([s.mine,s.theirs,s.myPos,s.mode,u.skind,u.sopp,s.cs?.bans,s.myChamp,u.stab,u.selTier]);
   const c = S.st?.client;
   $('#selphase').textContent = s.cs ? (s.cs.timer?.phase==='FINALIZATION'?'Finalizzazione':'In corso')+(s.cs.timer?.adjustedTimeLeftInPhase>0?` · ${Math.ceil(s.cs.timer.adjustedTimeLeftInPhase/1000)}s`:'') : 'Modalità manuale';
-  $('#impmsg').textContent = c?.imported||'';
+  if(c?.imported && c.imported!==u.lastImp){ u.lastImp=c.imported; toast(c.imported); }
   if(!force && sig===u.ssig) return;
   u.ssig = sig;
   const pick = (p,i,side) => `<div class="pick ${p.me?'me':''}" data-act="override" data-k="${side}${i}" title="Clicca per correggere il campione">
       <div class="p">${p.champ?`<img src="${cImg(p.champ)}">`:'?'}</div><div class="pl">${p.champ?esc(champ(p.champ).name):(side==='a'?(POS[p.pos]||'Alleato'):'Nemico')}</div></div>`;
-  $('#teams').innerHTML = `<div class="team">${s.mine.map((p,i)=>pick(p,i,'a')).join('')}</div><div class="vs">VS</div><div class="team enemy">${s.theirs.map((p,i)=>pick(p,i,'e')).join('')}</div>`;
+  put($('#teams'), `<div class="team">${s.mine.map((p,i)=>pick(p,i,'a')).join('')}</div><div class="vs">VS</div><div class="team enemy">${s.theirs.map((p,i)=>pick(p,i,'e')).join('')}</div>`, soft);
   const bans = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[])].filter(Boolean);
-  $('#bans').innerHTML = s.cs ? `Ban: <span class="bans">${bans.map(b=>`<img src="${cImg(b)}">`).join('')||'<span class="dim">nessuno</span>'}</span><span class="sp"></span><span class="dim">Clicca un ritratto per correggerlo se è rilevato male</span>`
-    : `<span>Il client non è in champion select: puoi inserire i campioni a mano cliccando sui ritratti.</span>`;
+  put($('#bans'), s.cs ? `Ban: <span class="bans">${bans.map(b=>`<img src="${cImg(b)}">`).join('')||'<span class="dim">nessuno</span>'}</span><span class="sp"></span><span class="dim">Clicca un ritratto per correggerlo se è rilevato male</span>`
+    : `<span>Il client non è in champion select: puoi inserire i campioni a mano cliccando sui ritratti.</span>`, soft);
   const enemies = s.theirs.map(x=>x.champ).filter(Boolean);
   if(u.sopp && !enemies.includes(u.sopp) && !u.soppManual) u.sopp = 0;
-  $('#sfilters').innerHTML = `${!s.cs?`<select data-ui="smode">${opt(MODES,s.mode)}</select>`:''}
+  // barra strumenti stile Blitz: campione · ruolo · vs · elo · import
+  put($('#cstool'), `<div class="seg"><button data-act="stab" data-k="build" class="${u.stab==='build'?'on':''}">Build</button><button data-act="stab" data-k="sugg" class="${u.stab==='sugg'?'on':''}">Suggerimenti</button></div>
+    <button class="champbtn" data-act="override" data-k="a${s.meIdx}">${s.myChamp?`<img src="${cImg(s.myChamp)}">`:'<span class="q">?</span>'}<span>${s.myChamp?esc(champ(s.myChamp).name):'Scegli campione'}</span></button>
+    ${!s.cs?`<select data-ui="smode">${opt(MODES,s.mode)}</select>`:''}
     ${isPos(s.mode)?`<select data-ui="spos">${opt(['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(p=>[p,POS[p]]), s.myPos)}</select>`:''}
-    ${u.skind==='matchup'?`<select data-ui="sopp" data-num="1"><option value="0">Avversario di corsia…</option>${enemies.map(e=>`<option value="${e}" ${u.sopp===e?'selected':''}>${esc(champ(e).name)}</option>`).join('')}${u.sopp&&!enemies.includes(u.sopp)?`<option value="${u.sopp}" selected>${esc(champ(u.sopp).name)}</option>`:''}</select>
-      <button class="btn ghost sm" data-act="pickopp">Scegli avversario</button>`:''}`;
-  loadSuggestions(s, soft || S.ui.suggLoaded);
-  S.ui.suggLoaded = true;
-  // build del campione scelto
-  const bk = `${s.myChamp}|${s.myPos}|${s.mode}`;
-  if(bk!==u.sbuildKey || soft){ const same = bk===u.sbuildKey; u.sbuildKey=bk; loadSelBuild(s, soft && same); }
+    <span class="dim b">vs</span><select data-ui="sopp" data-num="1"><option value="0">Nessun matchup</option>${enemies.map(e=>`<option value="${e}" ${u.sopp===e?'selected':''}>${esc(champ(e).name)}</option>`).join('')}${u.sopp&&!enemies.includes(u.sopp)?`<option value="${u.sopp}" selected>${esc(champ(u.sopp).name)}</option>`:''}</select>
+    <button class="btn ghost sm" data-act="pickopp" title="Scegli l'avversario da tutti i campioni">…</button>
+    <select data-ui="selTier" title="Elo delle statistiche">${tierOptions(u.selTier)}</select>
+    <span class="sp"></span><button class="btn" data-act="selimport" ${c?.connected&&s.myChamp?'':'disabled'}>Importa${s.myChamp?' '+esc(champ(s.myChamp).name):''}</button>`, soft);
+  if(u.stab==='sugg'){
+    if(!$('#sugg')) $('#csbody').innerHTML = `<div class="card"><div class="ctitle"><h2>Quale campione scegliere</h2><span class="sp"></span>
+      <div class="seg"><button data-act="skind" data-k="matchup" class="${u.skind==='matchup'?'on':''}">Per matchup</button><button data-act="skind" data-k="team" class="${u.skind==='team'?'on':''}">Per team comp</button></div></div><div id="sugg"></div></div>`;
+    loadSuggestions(s, soft || S.ui.suggLoaded); S.ui.suggLoaded = true;
+    u.sbuildKey = '';
+    return;
+  }
+  const bk = `${s.myChamp}|${s.myPos}|${s.mode}|${u.selTier}`;
+  if(bk!==u.sbuildKey || soft || !$('#cslist')){ const same = bk===u.sbuildKey && $('#cslist'); u.sbuildKey=bk; loadSelBuild(s, soft && same); }
 }
+
 async function loadSuggestions(s, soft){
-  const u = S.ui, el = $('#sugg');
+  const u = S.ui, el = $('#sugg'); if(!el) return;
   const allies = s.mine.filter(x=>!x.me).map(x=>x.champ).filter(Boolean), enemies = s.theirs.map(x=>x.champ).filter(Boolean);
   const bans = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[])].filter(Boolean);
-  if(u.skind==='matchup' && !u.sopp){ put(el, `<div class="empty small">Seleziona il tuo avversario di corsia per vedere i campioni migliori contro di lui.<br><span class="dim">In champion select i ruoli nemici non sono visibili: sceglilo dall'elenco o con "Scegli avversario".</span></div>`, soft); return; }
+  if(u.skind==='matchup' && !u.sopp){ put(el, `<div class="empty small">Scegli il tuo avversario di corsia nel menu "vs" per vedere i campioni migliori contro di lui.<br><span class="dim">In champion select i ruoli nemici non sono visibili: sceglilo dall'elenco o con "…".</span></div>`, soft); return; }
   if(!soft) el.innerHTML = `<div class="loading"><span class="spinner"></span></div>`;
   let list = [];
-  try{ list = await api('/api/suggest', {mode:s.mode, tier:'auto', position:s.myPos, kind:u.skind, allies, enemies, opponent:u.sopp||0, exclude:bans}); }catch(e){}
+  try{ list = await api('/api/suggest', {mode:s.mode, tier:u.selTier, position:s.myPos, kind:u.skind, allies, enemies, opponent:u.sopp||0, exclude:bans}); }catch(e){}
   if(!$('#sugg')) return;
   if(!list?.length){ put(el, `<div class="empty small">${S.st?.engine?.total? 'Non ci sono ancora abbastanza partite per questo filtro.' : 'I suggerimenti si basano sul motore statistiche: aggiungi la chiave Riot API nelle impostazioni.'}</div>`, soft); return; }
-  put(el, `<div class="sugg">${list.map(x=>`<div class="sg" data-act="openchamp" data-id="${champ(x.champion).id}">${ci(x.champion)}<div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny muted">${esc(x.detail)}</div></div>
+  put(el, `<div class="sugg">${list.map(x=>`<div class="sg" data-act="suggpick" data-k="${x.champion}">${ci(x.champion)}<div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny muted">${esc(x.detail)}</div></div>
     <span class="sc ${x.score>=.5?'good':'bad'}">${pct(x.score,1)}</span></div>`).join('')}</div>`, soft);
 }
-async function loadSelBuild(s, soft){
-  const el = $('#selbuild'); if(!el) return;
-  if(!s.myChamp){ put(el, `<div class="empty small">Quando scegli (o passi sopra a) un campione, qui compare la build con rune, incantesimi e oggetti pronti da importare.</div>${autoBox()}`, soft); return; }
-  if(!soft){ el.innerHTML = `<div class="loading"><span class="spinner"></span></div>`; S.ui.selVariant = 0; }
-  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=auto&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ if(!soft) el.innerHTML = esc(e.message); return; }
-  if(!$('#selbuild')) return;
-  const b = d.build; S.ui.selBuild = {champ:s.myChamp, pos:b.position||s.myPos, mode:s.mode}; S.ui.selData = b;
-  if((S.ui.selVariant||0) >= (b.variants||[]).length) S.ui.selVariant = 0;
-  put(el, `<div class="row mb">${ci(s.myChamp,'l')}<div class="sp"><h2>${esc(champ(s.myChamp).name)}</h2><div class="small muted">${b.games?`${pct(b.winRate)} WR · ${num(b.games)} partite · ${POS[b.position]||modeName(s.mode)}`:'Build personale / consigliata da Riot'}</div></div>
-      <button class="btn" data-act="selimport" ${S.st?.client?.connected?'':'disabled'}>Importa tutto</button></div>
-    ${runesHTML(b.runes)}<div class="mt" id="selitems">${buildHTML(b, null, S.ui.selVariant||0, 'selvariant')}</div>${autoBox()}`, soft);
+
+/* ----- build in champion select (stile Blitz) ----- */
+function parseRuneJS(k){
+  if(!k) return null; const p = k.split(':'); if(p.length!==3) return null;
+  const perks = p[2].split(',').map(Number); if(perks.length!==9) return null;
+  return {primary:+p[0], secondary:+p[1], perks};
 }
-function autoBox(){
+function sortedVariants(b){
+  const vs = (b.variants||[]).map((v,i)=>({v,i})), base = b.winRate||0.5, k = S.ui.vsort;
+  const score = v => (v.winRate*v.games + base*30)/(v.games+30);
+  vs.sort((a,c)=> k==='common' ? c.v.games-a.v.games : k==='wr' ? c.v.winRate-a.v.winRate : score(c.v)-score(a.v));
+  return vs;
+}
+function selView(b){
+  const pk = S.ui.selPick || {t:'var', i:0};
+  if(pk.t==='pro' && b.proGames?.[pk.i]){
+    const g = b.proGames[pk.i];
+    const boots = g.items.filter(id=>S.items[id]?.tags?.includes('Boots'));
+    const core = [...boots, ...g.items.filter(id=>!boots.includes(id))];
+    return {runes: parseRuneJS(g.runes), runeInfo: `Rune di ${g.name}`, spells: g.spells, spellsInfo: '', starting: [...new Set(g.start||[])], core, situational: [], seq: g.seq, seqInfo: g.seq?`Ordine di ${g.name}`:'', wr: null, title: `Build di ${g.name}`};
+  }
+  const v = (b.variants||[])[pk.i] || null;
+  return {runes: b.runes, runeInfo: b.runes?.games?`${pct(b.runes.winRate)} WR · ${num(b.runes.games)} partite`:(b.runes?.source||''), spells: b.spells,
+    spellsInfo: b.spellsWR?`${pct(b.spellsWR)} WR`:'', starting: b.starting, core: v?v.core:b.core, situational: v?v.situational:b.situational,
+    seq: b.skillSeq, seqInfo: b.skillSeqN?`${pct(b.skillSeqWR)} WR · ${num(b.skillSeqN)} partite`:'', title: v? v.label : 'Build'};
+}
+function proRowsHTML(list, clickable){
+  if(!list?.length) return `<div class="small dim" style="padding:6px 2px">Nessuna partita ancora. Il motore raccoglie le partite di Master, Gran Maestro e Challenger; puoi aggiungere i tuoi pro preferiti in Impostazioni.</div>`;
+  return list.map((g,i)=>{
+    const rp = parseRuneJS(g.runes);
+    const initials = (g.name||'?').slice(0,2).toUpperCase();
+    return `<div class="csrow pro ${clickable&&S.ui.selPick?.t==='pro'&&S.ui.selPick.i===i?'on':''} ${g.win?'w':'l'}" ${clickable?`data-act="pickpro" data-i="${i}"`:''}>
+      <span class="av2 ${g.pro?'gold':''}">${esc(initials)}</span>
+      <div class="sp" style="min-width:0"><div class="nm">${esc(g.name)} ${g.pro?'<span class="probadge">PRO</span>':`<span class="tiny dim">${esc(TIER_IT[g.tier]||'')}</span>`}</div><div class="tiny dim">${ago(g.when)} · ${g.win?'<span class="good">V</span>':'<span class="bad">S</span>'}</div></div>
+      <div class="ic3">${rp?`<img src="${pImg(rp.perks[0])}">`:''}${(g.items||[]).filter(id=>!S.items[id]?.tags?.includes('Boots')).slice(0,2).map(id=>`<img src="${iImg(id)}">`).join('')}</div>
+      ${g.opp?`<span class="tiny dim">vs</span><img class="ic xs" src="${cImg(g.opp)}">`:''}</div>`; }).join('');
+}
+function skillGridHTML(seq){
+  if(!seq) return `<div class="small dim">L'ordine delle abilità compare quando ci sono abbastanza partite con la cronologia completa.</div>`;
+  const n = seq.length, cols = Math.max(n, 15);
+  const head = Array.from({length:cols},(_,i)=>`<span class="h">${i+1}</span>`).join('');
+  const row = k => `<span class="k k${k}">${k}</span>`+Array.from({length:cols},(_,i)=>`<span class="c ${seq[i]===k?'on k'+k:''}">${seq[i]===k?k:''}</span>`).join('');
+  return `<div class="sgrid" style="grid-template-columns:28px repeat(${cols},1fr)"><span></span>${head}${['Q','W','E','R'].map(row).join('')}</div>`;
+}
+async function loadSelBuild(s, soft){
+  const el = $('#csbody'); if(!el) return;
+  const u = S.ui;
+  if(!s.myChamp){ put(el, `<div class="card"><div class="empty"><div class="big">🎯</div>Scegli (o passa sopra a) un campione: qui comparirà la build con rune, incantesimi, oggetti e ordine delle abilità, per elo e dai pro.<div class="mt"><button class="btn ghost" data-act="override" data-k="a${s.meIdx}">Scegli campione</button></div></div></div>`, soft); return; }
+  if(!soft){ el.innerHTML = `<div class="loading"><span class="spinner"></span>Preparo la build…</div>`; u.selPick = {t:'var', i:0}; }
+  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=${u.selTier}&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ if(!soft) el.innerHTML = esc(e.message); return; }
+  if(!$('#csbody')) return;
+  const b = d.build; u.selBuild = {champ:s.myChamp, pos:b.position||s.myPos, mode:s.mode}; u.selData = b;
+  if(u.selPick.t==='var' && u.selPick.i >= Math.max(1,(b.variants||[]).length)) u.selPick = {t:'var', i:0};
+  if(u.selPick.t==='pro' && !b.proGames?.[u.selPick.i]) u.selPick = {t:'var', i:0};
+  put(el, selBuildHTML(b, s), soft);
+}
+function selBuildHTML(b, s){
+  const u = S.ui, view = selView(b);
+  const tierLbl = (()=>{ const t = (u.selTier==='auto'? (S.st?.autoTier||'') : u.selTier); if(t==='ALL') return 'tutti i ranghi'; return t.includes('+') ? TIER_IT[t.replace('+','')]+'+' : (TIER_IT[t]||t); })();
+  const vs = sortedVariants(b);
+  const varRows = vs.length ? vs.map(({v,i})=>`<div class="csrow ${u.selPick.t==='var'&&u.selPick.i===i?'on':''}" data-act="pickvar" data-i="${i}">
+      <div class="sp" style="min-width:0"><div class="nm">${esc(v.label||'Build')}</div><div class="tiny dim">${num(v.games)} partite · ${pct(v.share,0)}</div></div>
+      <div class="ic3">${v.boots?`<img src="${iImg(v.boots)}">`:''}${v.path.slice(0,3).map(id=>`<img src="${iImg(id)}">`).join('')}</div>
+      <span class="wrb ${v.winRate>=.5?'good':'bad'}">${pct(v.winRate,0)}</span></div>`).join('')
+    : `<div class="csrow ${u.selPick.t==='var'?'on':''}" data-act="pickvar" data-i="0"><div class="sp"><div class="nm">${b.personal?'Build personale':b.games?'Build principale':'Build consigliata'}</div><div class="tiny dim">${b.games?num(b.games)+' partite':'rune consigliate da Riot / build personale'}</div></div>${b.games?`<span class="wrb ${b.winRate>=.5?'good':'bad'}">${pct(b.winRate,0)}</span>`:''}</div>`;
+  const opp = u.sopp ? [...(b.best||[]),...(b.worst||[])].find(x=>x.champion===u.sopp) : null;
+  return `<div class="csgrid">
+    <div class="card cslist" id="cslist">
+      <div class="seg full">${[['best','Migliore'],['wr','Win rate'],['common','Più giocata']].map(([k,l])=>`<button data-act="vsort" data-k="${k}" class="${u.vsort===k?'on':''}">${l}</button>`).join('')}</div>
+      <div class="cssec">Build ${esc(tierLbl)}${b.widened?' <span class="tiny dim">(ampliato)</span>':''}</div>${varRows}
+      <div class="cssec">Pro e Master+</div>${proRowsHTML(b.proGames, true)}
+    </div>
+    <div class="card">
+      <div class="ctitle"><h2>${esc(view.title)}</h2><span class="sp"></span>${b.games?`<span class="badge">${pct(b.winRate)} WR · ${num(b.games)} partite</span>`:''}${opp?`<span class="badge ${opp.winRate>=.5?'good':'bad'}">vs ${esc(champ(opp.champion).name)}: ${pct(opp.winRate)}</span>`:''}</div>
+      <div class="kicker">Rune <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:500">${esc(view.runeInfo||'')}</span></div>
+      <div class="mt">${runesHTML(view.runes)}</div>
+      <div class="kicker mt2">Ordine abilità <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:500">${esc(view.seqInfo||'')}</span></div>
+      ${b.skills && S.ui.selPick.t==='var'?`<div class="skills mt" style="margin-bottom:8px">${b.skills.split('>').map((k,i)=>`${i?'<span class="arr">›</span>':''}<span class="skey">${k}</span>`).join('')}</div>`:''}
+      <div class="mt">${skillGridHTML(view.seq)}</div>
+    </div>
+    <div class="card">
+      <div class="blocklbl" style="margin-top:0"><span>Incantesimi</span><span class="small muted">${esc(view.spellsInfo||'')}</span></div>
+      <div class="row">${(view.spells||[]).map(sp=>`<img class="ic" src="${sImg(sp)}" title="${esc(S.spells[sp]?.name||'')}">`).join('')||'<span class="small dim">—</span>'}</div>
+      <div class="blocklbl"><span>Inizio partita</span><span class="small dim">5 slot</span></div>${slotsHTML(view.starting,5,'starting',false)}
+      <div class="blocklbl"><span>Ordine build</span><span class="small dim">10 slot</span></div>${slotsHTML(view.core,10,'core',false, S.ui.selPick.t==='var'?b.itemWR:null)}
+      <div class="blocklbl"><span>Situazionali</span><span class="small dim">10 slot</span></div>${slotsHTML(view.situational,10,'situational',false, S.ui.selPick.t==='var'?b.itemWR:null)}
+    </div>
+  </div>`;
+}
+function redrawSelBuild(){ const b = S.ui.selData; if(b && $('#csbody')) $('#csbody').innerHTML = selBuildHTML(b, selState()); }
+function autoBox(bare){
   const s = S.settings;
-  return `<div class="card flat mt"><div class="kicker">Import automatico quando blocchi il campione</div>
-    <div class="setting"><div class="lbl"><b>Rune</b></div>${sw('autoRunes',s.autoRunes)}</div>
+  const inner = `<div class="setting"><div class="lbl"><b>Rune</b></div>${sw('autoRunes',s.autoRunes)}</div>
     <div class="setting"><div class="lbl"><b>Incantesimi</b><small>Flash su ${s.flashKey}</small></div>${sw('autoSpells',s.autoSpells)}</div>
-    <div class="setting"><div class="lbl"><b>Oggetti (5 - 10 - 10)</b></div>${sw('autoItems',s.autoItems)}</div></div>`;
+    <div class="setting"><div class="lbl"><b>Oggetti (5 - 10 - 10)</b></div>${sw('autoItems',s.autoItems)}</div>`;
+  return bare ? inner : `<div class="card flat mt"><div class="kicker">Import automatico quando blocchi il campione</div>${inner}</div>`;
 }
 
 /* ================= PATCH ================= */
@@ -576,24 +697,32 @@ function drawPatch(){
 }
 
 /* ================= OVERLAY ================= */
-const WIDGETS = [['cs','Contatore CS in tempo reale','CS e CS al minuto, aggiornati ogni secondo'],['objectives','Timer obiettivi','Drago, Larve, Araldo, Atakhan, Barone (dagli eventi di gioco)'],
-  ['camps','Timer campi della giungla','Blu, Gromp, Lupi, Pappagalli, Rosso, Sassi (in ARAM: le vite)'],['buffs','Promemoria buff','Scadenza buff del Barone e del Drago Antico'],
-  ['deaths','Timer di respawn','Quanto manca al respawn dei giocatori morti'],['itemDiff','Differenza valore oggetti','Tieni premuto TAB: squadra e avversario diretto'],['loading','Statistiche squadre','Rango e win rate di tutti i giocatori (caricamento e Ctrl+T)']];
+const WIDGETS = [['cs.on','Riquadro principale: CS','CS al minuto e totale, aggiornati ogni secondo'],['showKP','Partecipazione alle uccisioni','Nel riquadro principale, accanto ai CS'],
+  ['objectives.on','Timer obiettivi','Drago, Larve, Araldo, Atakhan, Barone (dagli eventi di gioco)'],['compact','Versione riassunta','Tutto il riquadro principale su una riga (anche con Ctrl+Shift+C in gioco)'],
+  ['camps.on','Timer campi della giungla','Blu, Gromp, Lupi, Pappagalli, Rosso, Sassi (in ARAM: le vite)'],['buffs.on','Promemoria buff','Scadenza buff del Barone e del Drago Antico'],
+  ['deaths.on','Timer di respawn','Quanto manca al respawn dei giocatori morti'],['itemDiff.on','Differenza valore oggetti','Tieni premuto TAB: squadra e avversario diretto'],['loading.on','Statistiche squadre','Rango e win rate di tutti i giocatori (caricamento e Ctrl+T)']];
 const TIMERS = [['dragonFirst','Primo drago'],['dragonRespawn','Respawn drago'],['elderRespawn','Respawn Drago Antico'],['grubsFirst','Larve del Vuoto'],['heraldFirst','Araldo'],['atakhanFirst','Atakhan (0 = disattivo)'],
   ['baronFirst','Primo Barone'],['baronRespawn','Respawn Barone'],['campFirst','Primo spawn campi'],['buffFirst','Primo spawn Blu/Rosso'],['campRespawn','Respawn campi piccoli'],['buffRespawn','Respawn Blu/Rosso'],
   ['baronBuff','Durata buff Barone'],['elderBuff','Durata buff Antico'],['relicFirst','ARAM: prime vite'],['relicRespawn','ARAM: respawn vite']];
 function pageOverlay(m){
   const o = S.settings.overlay;
-  m.innerHTML = `<div class="page"><div class="row mb"><h1>Overlay in-game</h1><span class="sp"></span>${sw('overlay.enabled',o.enabled)}<b>Attivo</b></div>
+  const g = p => getPath(o, p);
+  m.innerHTML = `<div class="page"><div class="row mb"><h1>Overlay in-game</h1><span class="sp"></span>
+      <button class="btn ${o.editMode?'':'ghost'}" data-act="editmode">${o.editMode?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo'}</button>${sw('overlay.enabled',o.enabled)}<b>Attivo</b></div>
     <div class="card flat mb small muted">ℹ️ Imposta League in modalità <b>Senza bordi</b> (Impostazioni di gioco → Video → Modalità finestra): in "Schermo intero" Windows non permette a nessun overlay di comparire sopra il gioco.
-      L'overlay resta visibile anche quando fai alt-tab e torna da solo a ogni nuova partita.</div>
+      Puoi spostare ogni elemento trascinandolo nell'anteprima qui a destra, oppure con <b>Sposta gli elementi sullo schermo</b> direttamente sopra il gioco (o sul desktop).</div>
     <div class="grid2" style="grid-template-columns:1fr 1.15fr">
       <div class="col gap16">
-        <div class="card"><h2>Elementi</h2>${WIDGETS.map(([k,n,d])=>`<div class="wrow"><div><b>${n}</b><div class="small muted">${d}</div></div>${sw('overlay.'+k+'.on',o[k].on)}
-          <div class="pos"><span>X</span><input type="range" min="0" max="1" step="0.005" value="${o[k].x}" data-setnum="overlay.${k}.x"><span>Y</span><input type="range" min="0" max="1" step="0.005" value="${o[k].y}" data-setnum="overlay.${k}.y"></div></div>`).join('')}
+        <div class="card"><h2>Elementi</h2>${WIDGETS.map(([k,n,d])=>`<div class="setting"><div class="lbl"><b>${n}</b><small>${d}</small></div>${sw('overlay.'+k, g(k))}</div>`).join('')}
           <div class="setting"><div class="lbl"><b>Dimensione</b></div><input type="range" min="0.7" max="1.6" step="0.05" value="${o.scale}" data-setnum="overlay.scale" style="width:160px"></div></div>
+        <div class="card"><h2>Obiettivo CS</h2>
+          <div class="setting"><div class="lbl"><b>Confronta i tuoi CS/min con</b></div><select data-set="overlay.csGoal">${opt([['off','Nessun confronto'],['elo','La media di un elo'],['custom','Un valore che scelgo io']],o.csGoal)}</select></div>
+          ${o.csGoal==='elo'?`<div class="setting"><div class="lbl"><b>Elo di riferimento</b><small>Media del tuo campione e ruolo in quell'elo, dalle partite analizzate (* = stima finché non ci sono dati)</small></div><select data-set="overlay.csGoalTier">${opt([['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])),o.csGoalTier)}</select></div>`:''}
+          ${o.csGoal==='custom'?`<div class="setting"><div class="lbl"><b>CS al minuto da raggiungere</b></div><input type="number" min="1" max="15" step="0.1" value="${o.csGoalValue}" data-setnum="overlay.csGoalValue" style="width:90px"></div>`:''}
+          <p class="tiny dim">Il valore diventa verde se sei sopra l'obiettivo, giallo se sei vicino e rosso se sei sotto.</p></div>
         <div class="card"><div class="ctitle"><h2>Timer sulla minimappa</h2><span class="sp"></span>${sw('overlay.minimap',o.minimap)}</div>
           <p class="small muted">I timer compaiono direttamente sopra i campi. Regola la dimensione finché le etichette non combaciano con la tua minimappa.</p>
+          <div class="setting"><div class="lbl"><b>Grandezza delle etichette</b></div><input type="range" min="0.4" max="1.3" step="0.05" value="${o.pillScale}" data-setnum="overlay.pillScale" style="width:180px"></div>
           <div class="setting"><div class="lbl"><b>Lato minimappa</b><small>${o.minimapSize}px</small></div><input type="range" min="160" max="520" step="2" value="${o.minimapSize}" data-setnum="overlay.minimapSize" style="width:180px"></div>
           <div class="setting"><div class="lbl"><b>Distanza dal bordo destro</b><small>${o.minimapRight}px</small></div><input type="range" min="0" max="80" step="1" value="${o.minimapRight}" data-setnum="overlay.minimapRight" style="width:180px"></div>
           <div class="setting"><div class="lbl"><b>Distanza dal bordo inferiore</b><small>${o.minimapBottom}px</small></div><input type="range" min="0" max="80" step="1" value="${o.minimapBottom}" data-setnum="overlay.minimapBottom" style="width:180px"></div></div>
@@ -603,32 +732,66 @@ function pageOverlay(m){
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…4</span></span><span>In ARAM: vita raccolta (avvia il timer di respawn)</span>
           <span><span class="kbd">TAB</span> (tenuto)</span><span>Differenza valore oggetti</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">T</span></span><span>Mostra/nascondi statistiche delle squadre</span>
+          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">C</span></span><span>Riquadro principale completo / riassunto</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">O</span></span><span>Nascondi/mostra tutto l'overlay (si riattiva da solo alla partita successiva)</span></div></div>
         <div class="card"><div class="ctitle"><h2>Durate dei timer</h2><span class="sp"></span><button class="btn ghost sm" data-act="resetoverlay">Ripristina predefiniti</button></div>
           <p class="small muted">In secondi. Riot cambia spesso questi tempi tra una stagione e l'altra: se non tornano, correggili qui.</p>
           <div class="grid2" style="gap:8px 16px">${TIMERS.map(([k,l])=>`<label class="row small"><span class="sp muted">${l}</span><input type="number" min="0" step="5" value="${o.timers[k]}" data-setnum="overlay.timers.${k}" style="width:80px"></label>`).join('')}</div></div>
       </div>
       <div><div class="card" style="position:sticky;top:0"><div class="ctitle"><h2>Anteprima</h2><span class="sp"></span><span class="small muted" id="ovstate"></span></div>
-        <div class="screen" id="screen"></div><p class="small muted mt">Anteprima con dati di esempio quando non sei in partita. La differenza oggetti appare in gioco solo tenendo premuto TAB.</p></div></div>
+        <div class="screen" id="screen"></div><p class="small muted mt">✥ Trascina gli elementi con il mouse per posizionarli. Con dati di esempio quando non sei in partita.</p></div></div>
     </div></div>`;
   drawOverlayPreview();
   clearInterval(S.ovTimer); S.ovTimer = setInterval(()=>{ if(route()[0]!=='overlay'){clearInterval(S.ovTimer);return;} drawOverlayPreview(); }, 1000);
+  bindPreviewDrag();
 }
 async function drawOverlayPreview(){
+  if(S.ovDrag) return;
   let md; try{ md = await api('/api/overlay/model?preview=1'); }catch(e){ return; }
-  const el = $('#screen'); if(!el) return;
+  // posizioni spostate in gioco: allineo le impostazioni locali
+  if(S.settings.overlay.editMode && !Object.keys(pending).length){ try{ const ns = await api('/api/settings'); S.settings.overlay = {...ns.overlay, editMode:S.settings.overlay.editMode}; }catch(e){} }
+  const el = $('#screen'); if(!el || S.ovDrag) return;
   $('#ovstate').textContent = S.st?.inGame ? '● Partita in corso' : 'Dati di esempio';
-  const W = el.clientWidth, H = el.clientHeight, k = H/1080*(S.settings.overlay.scale||1), o = S.settings.overlay;
-  const mmS = o.minimapSize*H/1080, mmR = o.minimapRight*H/1080, mmB = o.minimapBottom*H/1080;
-  let h = `<div class="mm" style="width:${mmS}px;height:${mmS}px;right:${mmR}px;bottom:${mmB}px"></div>`;
+  const W = el.clientWidth, H = el.clientHeight, o = S.settings.overlay, k = H/1080*(o.scale||1), U = H/1080;
+  const px = v => (v*k).toFixed(2)+'px';
+  let h = `<div class="mm" style="width:${o.minimapSize*U}px;height:${o.minimapSize*U}px;right:${o.minimapRight*U}px;bottom:${o.minimapBottom*U}px"></div>`;
   for(const w of md.widgets){
-    if(w.pill){ h += `<div class="ow pill" style="--acc:${w.accent};left:${W - w.x*H/1080}px;top:${H - w.y*H/1080}px;color:${w.lines[0].color}">${esc(w.lines[0].text)}</div>`; continue; }
-    const ww = w.width*k, pad = 10*k, fs = Math.max(5, 13*k);
-    let x = w.x*W - (w.anchor==='center'?ww/2:0);
-    h += `<div class="ow" style="--acc:${w.accent};left:${Math.max(0,x)}px;top:${w.y*H}px;width:${ww}px;padding:${pad}px ${12*k}px ${pad}px ${16*k}px;font-size:${fs}px">
-      ${w.title?`<div class="t" style="height:${18*k}px;font-size:${Math.max(4.5,11*k)}px">${esc(w.title)}</div>`:''}${w.lines.map(l=>`<div class="ln" style="height:${(l.size>=16?28:21)*k}px;color:${l.color};font-weight:${l.bold?800:500}${l.size>=16?';font-size:'+Math.max(6,l.size*k)+'px':''}"><span>${esc(l.text)}</span><span>${esc(l.right||'')}</span></div>`).join('')}</div>`;
+    if(w.pill){ const ps=o.pillScale||0.7; h += `<div class="ow pill" style="--acc:${w.accent};left:${W - w.x*U}px;top:${H - w.y*U}px;color:${w.lines[0].color};font-size:${Math.max(4,10*ps*k)}px;padding:${px(1)} ${px(5*ps)}">${esc(w.lines[0].text)}</div>`; continue; }
+    const left = w.x*W, top = w.y*H, center = w.anchor==='center';
+    const pos = `left:${left}px;top:${top}px;${center?'transform:translateX(-50%);':''}`;
+    if(w.segs?.length){
+      h += `<div class="ow2 seg1" data-key="${w.key||''}" style="${pos};--acc:${w.accent};font-size:${px(13)};padding:0 ${px(12)};height:${px(30)};gap:${px(6)}"><i class="d" style="width:${px(8)};height:${px(8)}"></i>${w.segs.map(sg=>`<span style="color:${sg.color};font-weight:${sg.bold?800:500}">${esc(sg.text)}</span>`).join('')}</div>`;
+      continue;
+    }
+    h += `<div class="ow2" data-key="${w.key||''}" style="${pos};--acc:${w.accent};width:${px(w.width)};padding:${px(12)};border-radius:${px(16)};font-size:${px(13)}">
+      ${w.title?`<div class="t" style="height:${px(22)};font-size:${px(11)};gap:${px(6)}">${w.dot?`<i class="d" style="width:${px(8)};height:${px(8)}"></i>`:`<i class="bar2" style="width:${px(3)};height:${px(12)}"></i>`}${esc(w.title)}</div>`:''}
+      ${w.tiles?.length?`<div class="tiles" style="gap:${px(8)};margin-bottom:${px(8)}">${w.tiles.map(t=>`<div class="tile" style="padding:${px(7)} ${px(10)};border-radius:${px(12)}"><div class="v" style="font-size:${px(22)};color:${t.color}">${esc(t.value)}</div><div class="l" style="font-size:${px(11)}">${esc(t.label)}</div>${t.sub?`<div class="l b" style="font-size:${px(10.5)}">${esc(t.sub)}</div>`:''}</div>`).join('')}</div>`:''}
+      ${(w.lines||[]).map(l=>`<div class="ln ${l.right?'rowbg':''}" style="height:${px(l.size>=16?28:24)};padding:0 ${px(l.right?8:2)};border-radius:${px(8)};margin-bottom:${px(1)}"><span style="color:${l.right?'#E4E7FA':l.color};font-weight:${l.bold&&!l.right?800:500}">${esc(l.text)}</span><span style="color:${l.color};font-weight:800">${esc(l.right||'')}</span></div>`).join('')}</div>`;
   }
   el.innerHTML = h;
+}
+// trascinamento degli elementi nell'anteprima
+function bindPreviewDrag(){
+  const el = $('#screen'); if(!el) return;
+  el.addEventListener('mousedown', e=>{
+    const w = e.target.closest('.ow2'); if(!w || !w.dataset.key) return;
+    e.preventDefault();
+    const key = w.dataset.key, r = el.getBoundingClientRect(), wr = w.getBoundingClientRect();
+    const center = w.style.transform.includes('translateX');
+    const offX = e.clientX - (center ? wr.left + wr.width/2 : wr.left), offY = e.clientY - wr.top;
+    S.ovDrag = true; w.classList.add('dragging');
+    const move = ev => {
+      const x = Math.min(1, Math.max(0, (ev.clientX - offX - r.left)/r.width)), y = Math.min(1, Math.max(0, (ev.clientY - offY - r.top)/r.height));
+      w.style.left = x*r.width+'px'; w.style.top = y*r.height+'px'; w._x = x; w._y = y;
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+      w.classList.remove('dragging'); S.ovDrag = false;
+      if(w._x!==undefined){ setSetting(`overlay.${key}.x`, +w._x.toFixed(4)); setSetting(`overlay.${key}.y`, +w._y.toFixed(4)); }
+      setTimeout(drawOverlayPreview, 250);
+    };
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  });
 }
 
 /* ================= STREAMING ================= */
@@ -699,6 +862,9 @@ function pageSettings(m){
           <div class="row" style="width:100%"><input type="password" id="apikey" placeholder="RGAPI-…" value="${esc(s.riotApiKey||'')}" style="flex:1"><button class="btn ghost sm" data-act="showkey">👁</button><button class="btn sm" data-act="savekey">Salva</button></div></div>
         <div class="setting"><div class="lbl"><b>Motore statistiche</b><small>Analizza partite pubbliche in background per tier list, win rate, build e matchup</small></div>${sw('engineEnabled',s.engineEnabled)}</div>
         <div id="enginebox"></div></div>
+      <div class="card"><div class="ctitle"><h2>Pro player da seguire</h2><span class="sp"></span><button class="btn ghost sm" data-act="addpro">+ Aggiungi</button></div>
+        <p class="small muted">Le loro partite più recenti compaiono in champion select, sotto "Pro e Master+". Inserisci il Riot ID dell'account (Nome#TAG) e la regione: ne viene controllato uno ogni 3 minuti.</p>
+        <div id="prolist"></div></div>
       <div class="card"><h2>Client di League</h2>
         <div class="setting" style="flex-wrap:wrap"><div class="lbl"><b>Cartella di installazione</b><small>Lascia vuoto per il rilevamento automatico</small></div>
           <input type="text" data-set="leaguePath" placeholder="C:\\Riot Games\\League of Legends" value="${esc(s.leaguePath||'')}" style="width:100%"></div></div>
@@ -706,6 +872,14 @@ function pageSettings(m){
         <p class="tiny dim">BetterStomp isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties.</p></div>
     </div></div></div>`;
   updateEngineBox();
+  drawProList();
+}
+function drawProList(){
+  const el = $('#prolist'); if(!el) return;
+  const l = S.settings.proPlayers||[];
+  el.innerHTML = l.length ? l.map((p,i)=>`<div class="row" style="margin-bottom:8px"><input type="text" placeholder="Nome (es. Caps)" value="${esc(p.label)}" data-pro="${i}" data-f="label" style="width:120px">
+    <input type="text" placeholder="Riot ID (Nome#TAG)" value="${esc(p.riotId)}" data-pro="${i}" data-f="riotId" style="flex:1"><select data-pro="${i}" data-f="region">${opt(REGIONS,p.region||S.settings.region)}</select>
+    <button class="iconbtn" data-act="delpro" data-i="${i}" title="Rimuovi">✕</button></div>`).join('') : `<div class="small dim">Nessun pro inserito. Anche senza, vedi comunque le partite dei giocatori Master, Gran Maestro e Challenger.</div>`;
 }
 function updateEngineBox(){
   const el = $('#enginebox'), e = S.st?.engine; if(!el||!e) return;
@@ -767,9 +941,19 @@ const actions = {
   tpos(t){ S.ui.tpos=t.dataset.p; render(); },
   tsort(t){ const k=t.dataset.k; if(S.ui.tsort===k) S.ui.tdir=-(S.ui.tdir||-1); else { S.ui.tsort=k; S.ui.tdir=k==='name'?1:-1; } drawTier(); },
   async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:true,spells:true,items:true,variant:S.ui.variant||0}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
-  async selimport(){ const b=S.ui.selBuild; if(!b) return; try{ const r=await api('/api/import',{champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true,variant:S.ui.selVariant||0}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
+  async selimport(){ const b=S.ui.selBuild; if(!b) return; const pk=S.ui.selPick||{t:'var',i:0};
+    const body={champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true,variant:pk.t==='var'?pk.i:0};
+    if(pk.t==='pro'){ const v=selView(S.ui.selData); body.custom={runes:v.runes,spells:v.spells,starting:v.starting,core:v.core,situational:v.situational}; }
+    try{ const r=await api('/api/import',body); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
+  stab(t){ S.ui.stab=t.dataset.k; S.ui.ssig=''; $('#csbody').innerHTML=''; updateSelect(true); },
+  vsort(t){ S.ui.vsort=t.dataset.k; redrawSelBuild(); },
+  pickvar(t){ S.ui.selPick={t:'var',i:+t.dataset.i}; redrawSelBuild(); },
+  pickpro(t){ S.ui.selPick={t:'pro',i:+t.dataset.i}; redrawSelBuild(); },
+  suggpick(t){ const s=selState(); S.ui.over['a'+s.meIdx]=+t.dataset.k; S.ui.stab='build'; S.ui.ssig=''; S.ui.sbuildKey=''; $('#csbody').innerHTML=''; updateSelect(true); },
+  sidemore(t){ S.ui.sideMore=S.ui.sideMore||{}; S.ui.sideMore[t.dataset.k]=!S.ui.sideMore[t.dataset.k]; $('#side')._h=''; renderSide(); },
+  addpro(){ const l=[...(S.settings.proPlayers||[]),{label:'',riotId:'',region:S.settings.region}]; setSetting('proPlayers',l); drawProList(); },
+  delpro(t){ const l=[...(S.settings.proPlayers||[])]; l.splice(+t.dataset.i,1); setSetting('proPlayers',l); drawProList(); },
   variant(t){ S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
-  selvariant(t){ S.ui.selVariant=+t.dataset.i; const b=S.ui.selData; if(b) $('#selitems').innerHTML=buildHTML(b, null, S.ui.selVariant, 'selvariant'); },
   editbuild(){ S.ui.editing=!S.ui.editing; S.ui.edit=null; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.hasPersonal?S.ui.chData.personal:null, S.ui.variant, 'variant');
     document.querySelector('[data-act=editbuild]').textContent = S.ui.editing?'Chiudi editor':'Modifica build personale'; },
   pickitem(t,e){ if(e.target.closest('.x')) return; itemPicker(id=>{ const b=t.dataset.b, i=+t.dataset.i; const arr=S.ui.edit[b]; arr[i]=id; S.ui.edit[b]=arr.map(x=>x||0); refreshEditor(); }); },
@@ -785,6 +969,8 @@ const actions = {
   pf(t){ S.ui.pf=t.dataset.k; document.querySelectorAll('[data-act=pf]').forEach(c=>c.classList.toggle('on',c===t)); drawPatch(); },
   patchrefresh(){ pagePatch($('#main'), route(), false, true); },
   async resetoverlay(){ S.settings = await api('/api/settings/reset-overlay'); render(); toast('Overlay ripristinato'); },
+  editmode(t){ const on=!S.settings.overlay.editMode; setSetting('overlay.editMode', on); t.classList.toggle('ghost',!on); t.textContent = on?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo';
+    toast(on?'Modalità modifica attiva: trascina gli elementi sullo schermo, poi premi "Fine modifica"':'Posizioni salvate'); },
   copyobs(){ navigator.clipboard.writeText($('#obsurl').value).then(()=>toast('Indirizzo copiato')); },
   theme(t){ setSetting('theme', t.dataset.k); document.querySelectorAll('[data-act=theme]').forEach(b=>b.classList.toggle('on',b===t)); },
   flash(t){ setSetting('flashKey', t.dataset.k); document.querySelectorAll('[data-act=flash]').forEach(b=>b.classList.toggle('on',b===t)); },
@@ -799,13 +985,14 @@ document.addEventListener('click', e=>{
 });
 document.addEventListener('change', e=>{
   const t = e.target;
+  if(t.dataset.pro!==undefined){ const l=[...(S.settings.proPlayers||[])]; const i=+t.dataset.pro; l[i]={...l[i],[t.dataset.f]:t.value.trim()}; setSetting('proPlayers',l); return; }
   if(t.dataset.set){
     if(t.dataset.set==='_why'){ S.ui.why=t.checked; drawPatch(); return; }
     setSetting(t.dataset.set, t.type==='checkbox' ? t.checked : t.value);
-    if(t.dataset.set==='stream.goalTier' || t.dataset.set.startsWith('overlay.minimap')) render();
+    if(t.dataset.set==='stream.goalTier' || t.dataset.set==='overlay.csGoal') render();
     if(['autoRunes','autoSpells','autoItems'].includes(t.dataset.set)) document.querySelectorAll(`[data-set=${t.dataset.set}]`).forEach(x=>x.checked=t.checked);
   }
-  if(t.dataset.ui){ S.ui[t.dataset.ui] = t.dataset.num ? +t.value : t.value; if(t.dataset.ui==='sopp'){ S.ui.soppManual=false; } if(t.dataset.ui==='chMode') S.ui.chPos=''; if(['sopp','spos','smode'].includes(t.dataset.ui)){ S.ui.ssig=''; S.ui.sbuildKey=''; updateSelect(true); } else render(); }
+  if(t.dataset.ui){ S.ui[t.dataset.ui] = t.dataset.num ? +t.value : t.value; if(t.dataset.ui==='sopp'){ S.ui.soppManual=false; } if(t.dataset.ui==='chMode') S.ui.chPos=''; if(['sopp','spos','smode','selTier'].includes(t.dataset.ui)){ S.ui.ssig=''; if(t.dataset.ui!=='sopp') S.ui.sbuildKey=''; updateSelect(true); } else render(); }
 });
 document.addEventListener('input', e=>{
   const t = e.target;
