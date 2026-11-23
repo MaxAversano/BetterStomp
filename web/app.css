@@ -593,3 +593,12 @@ body.frameless .rz{display:block}
 .metac:hover{background:var(--card2)}
 
 .warn{color:#e9b949}
+
+.otplist{display:flex;flex-direction:column;gap:6px}
+.otprow{display:grid;grid-template-columns:minmax(160px,1.4fr) 110px 110px minmax(200px,2fr) auto;align-items:center;gap:12px;padding:8px 12px;border-radius:10px;background:var(--bg2,rgba(255,255,255,.03));border-left:3px solid transparent}
+.otprow.w{border-left-color:#3fb37f}.otprow.l{border-left-color:#e0565b}
+.otprow .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.otprune,.otpitems{display:flex;gap:4px;align-items:center}
+.otprune img{width:24px;height:24px;border-radius:6px}
+.otpitems img{width:30px;height:30px;border-radius:6px}
+@media(max-width:900px){.otprow{grid-template-columns:1fr auto;}.otprune,.otpitems{grid-column:span 1}}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // ---------- Build personali (slot 5 - 10 - 10) ----------
@@ -78,6 +79,12 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 		tier = autoTier()
 	}
 	b, err := BuildResult{}, errors.New("")
+	var otp []ProGame
+	var otpCh chan []ProGame
+	if !getSettings().OpggOff {
+		otpCh = make(chan []ProGame, 1)
+		go func() { otpCh <- opggOTPGames(champ) }() // in parallelo alla build
+	}
 	if !getSettings().OpggOff {
 		b, err = opggBuild(champ, pos, mode, tier) // dati OP.GG, il nostro motore resta di riserva
 	}
@@ -88,6 +95,27 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 	}
 	if b.Position == "" {
 		b.Position = pos
+	}
+	if otpCh != nil {
+		select {
+		case otp = <-otpCh:
+		case <-time.After(8 * time.Second):
+		}
+	}
+	if len(otp) > 0 {
+		var mine []ProGame
+		for _, g := range otp {
+			if b.Position == "" || g.Pos == "" || g.Pos == b.Position {
+				mine = append(mine, g)
+			}
+		}
+		if len(mine) == 0 {
+			mine = otp
+		}
+		if len(mine) > 12 {
+			mine = mine[:12]
+		}
+		b.ProGames = append(fillOTPRunes(mine, b.RunePages), b.ProGames...)
 	}
 	if variant > 0 && variant < len(b.Variants) {
 		b.Variant = variant

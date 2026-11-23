@@ -243,6 +243,16 @@ type ProGame struct {
 	Mode   string `json:"mode"`
 	When   int64  `json:"when"`
 	Match  string `json:"match"`
+	// partite degli OTP (classifica OP.GG del campione)
+	Keystone int     `json:"keystone,omitempty"`
+	K        int     `json:"k,omitempty"`
+	D        int     `json:"d,omitempty"`
+	A        int     `json:"a,omitempty"`
+	CS       int     `json:"cs,omitempty"`
+	LP       int     `json:"lp,omitempty"`
+	OtpGames int     `json:"otpGames,omitempty"`
+	OtpWR    float64 `json:"otpWR,omitempty"`
+	Otp      bool    `json:"otp,omitempty"`
 }
 
 // aggiunge una partita alla lista (max 30 per campione, la più recente prima)

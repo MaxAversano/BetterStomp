@@ -477,12 +477,13 @@ async function pageChampion(m, r, soft){
   put($('#chbody'), `<div class="card cbcard"><div class="ctitle"><h2>Build ${b.personal?'<span class="badge goldc">Personale</span>':''}</h2><span class="sp"></span>
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'✎ Build personale'}</button></div>
         <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div></div>
-    <div class="grid3 mt16">
+    <div class="grid2 mt16">
       <div class="card"><h2>Matchup</h2>${matchList('Vince contro',b.best,'good')}${matchList('Soffre contro',b.worst,'bad')}
         ${!b.best?.length&&!b.worst?.length?'<div class="muted small">Servono più partite analizzate per i matchup.</div>':''}</div>
       <div class="card"><h2>Sinergie</h2>${matchList('Meglio in squadra con',b.synergy,'good')||'<div class="muted small">Servono più partite analizzate.</div>'}</div>
-      <div class="card"><h2>Pro e Master+</h2><div class="col gap6">${proRowsHTML((b.proGames||[]).slice(0,6), false)}</div></div>
     </div>
+    <div class="card mt16"><div class="ctitle"><h2>Build di OTP e pro</h2><span class="sp"></span><span class="tiny dim">i migliori giocatori di ${esc(c.name)} nella tua regione (classifica OP.GG) · clic su Importa per usare la loro build</span></div>
+      ${otpRowsHTML(b.proGames||[])}</div>
     <div class="grid2 mt16" style="grid-template-columns:${prof?'2fr 1fr':'1fr'}">
       <div class="card"><h2>Abilità</h2>${detail? abilitiesHTML(detail.data[c.id]) : '<div class="muted">Non disponibili.</div>'}</div>
       ${prof?`<div class="card"><h2>Le tue partite <span class="tiny dim">Solo/Duo</span></h2><div class="stats"><div class="stat"><div class="k">Partite</div><div class="v">${prof.games}</div></div>
@@ -806,12 +807,24 @@ function selView(b){
     const g = b.proGames[pk.i];
     const boots = g.items.filter(id=>S.items[id]?.tags?.includes('Boots'));
     const core = [...boots, ...g.items.filter(id=>!boots.includes(id))];
-    return {runes: parseRuneJS(g.runes), runeInfo: `Rune di ${g.name}`, spells: g.spells, spellsInfo: '', starting: [...new Set(g.start||[])], core, situational: [], seq: g.seq, seqInfo: g.seq?`Ordine di ${g.name}`:'', wr: null, title: `Build di ${g.name}`};
+    return {runes: parseRuneJS(g.runes), runeInfo: `Rune di ${g.name}`, spells: g.spells, spellsInfo: '', starting: g.start?.length?[...new Set(g.start)]:(b.starting||[]), core, situational: [], seq: g.seq, seqInfo: g.seq?`Ordine di ${g.name}`:'', wr: null, title: `Build di ${g.name}`};
   }
   const v = (b.variants||[])[pk.i] || null;
   return {runes: b.runes, runeInfo: b.runes?.games?`${pct(b.runes.winRate)} WR · ${num(b.runes.games)} partite`:(b.runes?.source||''), spells: b.spells,
     spellsInfo: b.spellsWR?`${pct(b.spellsWR)} WR`:'', starting: b.starting, core: v?v.core:b.core, situational: v?v.situational:b.situational,
     seq: b.skillSeq, seqInfo: b.skillSeqN?`${pct(b.skillSeqWR)} WR · ${num(b.skillSeqN)} partite`:'', title: v? v.label : 'Build'};
+}
+function otpRowsHTML(list){
+  if(!list.length) return `<div class="small dim" style="padding:6px 2px">Nessuna partita recente trovata per questo campione.</div>`;
+  return `<div class="otplist">${list.slice(0,12).map((g,i)=>{
+    const rp = parseRuneJS(g.runes), ks = rp?.perks[0] || g.keystone;
+    const who = g.pro ? '<span class="probadge">PRO</span>' : `<span class="tiny dim">${esc(TIER_IT[g.tier]||g.tier||'')}${g.lp?' '+g.lp+' LP':''}</span>`;
+    return `<div class="otprow ${g.win?'w':'l'}">
+      <div class="otpwho"><div class="nm">${esc(g.name)} ${who}</div><div class="tiny dim">${g.otpGames?`${num(g.otpGames)} partite · <b class="${g.otpWR>=.5?'good':'bad'}">${pct(g.otpWR,0)}</b> · `:''}${ago(g.when)}</div></div>
+      <div class="otpres"><b class="${g.win?'good':'bad'}">${g.win?'Vittoria':'Sconfitta'}</b><div class="tiny dim">${g.k!=null&&(g.k||g.d||g.a)?`${g.k}/${g.d}/${g.a}`:''}${g.cs?` · ${g.cs} CS`:''}</div></div>
+      <div class="otprune">${ks?`<img src="${pImg(ks)}" title="${esc(S.perk?.[ks]?.name||'')}">`:''}${(g.spells||[]).map(x=>`<img src="${sImg(x)}">`).join('')}</div>
+      <div class="otpitems">${(g.items||[]).map(id=>`<img src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`).join('')}</div>
+      <button class="btn xs" data-act="otpimp" data-i="${i}">⇩ Importa</button></div>`; }).join('')}</div>`;
 }
 function proRowsHTML(list, clickable){
   if(!list?.length) return `<div class="small dim" style="padding:6px 2px">Nessuna partita ancora. Il motore raccoglie le partite di Master, Gran Maestro e Challenger; puoi aggiungere i tuoi pro preferiti in Impostazioni.</div>`;
@@ -821,7 +834,7 @@ function proRowsHTML(list, clickable){
     return `<div class="csrow pro ${clickable&&S.ui.selPick?.t==='pro'&&S.ui.selPick.i===i?'on':''} ${g.win?'w':'l'}" ${clickable?`data-act="pickpro" data-i="${i}"`:''}>
       <span class="av2 ${g.pro?'gold':''}">${esc(initials)}</span>
       <div class="sp" style="min-width:0"><div class="nm">${esc(g.name)} ${g.pro?'<span class="probadge">PRO</span>':`<span class="tiny dim">${esc(TIER_IT[g.tier]||'')}</span>`}</div><div class="tiny dim">${ago(g.when)} · ${g.win?'<span class="good">V</span>':'<span class="bad">S</span>'}</div></div>
-      <div class="ic3">${rp?`<img src="${pImg(rp.perks[0])}">`:''}${(g.items||[]).filter(id=>!S.items[id]?.tags?.includes('Boots')).slice(0,2).map(id=>`<img src="${iImg(id)}">`).join('')}</div>
+      <div class="ic3">${(rp?.perks[0]||g.keystone)?`<img src="${pImg(rp?.perks[0]||g.keystone)}">`:''}${(g.items||[]).filter(id=>!S.items[id]?.tags?.includes('Boots')).slice(0,2).map(id=>`<img src="${iImg(id)}">`).join('')}</div>
       ${g.opp?`<span class="tiny dim">vs</span><img class="ic xs" src="${cImg(g.opp)}">`:''}</div>`; }).join('');
 }
 function skillGridHTML(seq){
@@ -1200,6 +1213,10 @@ const actions = {
   mmore(){ S.ui.mShow=(S.ui.mShow||20)+20; render(true); },
   kssel(t){ S.ui.ksSel=+t.dataset.k; S.ui.runeSet=0; refreshEditor(); },
   runeset(t){ S.ui.runeSet=+t.dataset.i; refreshEditor(); },
+  async otpimp(t){ const d=S.ui.chData, g=(d.build.proGames||[])[+t.dataset.i]; if(!g) return;
+    const boots=g.items.filter(id=>S.items[id]?.tags?.includes('Boots')), core=[...boots,...g.items.filter(id=>!boots.includes(id))];
+    const rp=parseRuneJS(g.runes);
+    try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,runes:!!rp,spells:true,items:true,custom:{runes:rp,spells:g.spells,starting:d.build.starting||[],core,situational:[]}}); toast((r.message||'Fatto')+(rp?'':' (rune: solo keystone disponibile, pagina non importata)')); }catch(e){ toast(e.message); } },
   async imprunes(){ const rr=curRunes(); if(!rr) return toast('Nessuna pagina'); try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:S.ui.chData.build.position,runes:true,spells:false,items:false,custom:{runes:rr}}); toast(r.message||'Rune importate'); }catch(e){ toast(e.message); } },
   async impitems(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:false,spells:false,items:true,variant:S.ui.variant||0}); toast(r.message||'Oggetti importati'); }catch(e){ toast(e.message); } },
   runesel(t){ const i=+t.dataset.i; S.ui.runeSel = S.ui.runeSel===i?null:i; refreshEditor(); },
