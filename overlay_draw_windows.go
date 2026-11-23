@@ -35,6 +35,12 @@ func portraitImage(id string) image.Image {
 	if id == "" {
 		return nil
 	}
+	v := static.version()
+	return remoteImage(id, "https://ddragon.leagueoflegends.com/cdn/"+v+"/img/champion/"+id+".png", filepath.Join(dataDir, "ddragon", v, "img", "champion", id+".png"))
+}
+
+// immagine scaricata una volta e tenuta in cartella; nil finché non è pronta
+func remoteImage(id, u, p string) image.Image {
 	portraitMu.Lock()
 	img, ok := portraitSrc[id]
 	if ok || portraitWant[id] {
@@ -44,12 +50,10 @@ func portraitImage(id string) image.Image {
 	portraitWant[id] = true
 	portraitMu.Unlock()
 	go func() {
-		v := static.version()
-		p := filepath.Join(dataDir, "ddragon", v, "img", "champion", id+".png")
 		b, err := os.ReadFile(p)
 		if err != nil {
 			c := &http.Client{Timeout: 10 * time.Second}
-			resp, err := c.Get("https://ddragon.leagueoflegends.com/cdn/" + v + "/img/champion/" + id + ".png")
+			resp, err := c.Get(u)
 			if err != nil {
 				portraitMu.Lock()
 				delete(portraitWant, id) // riprova più avanti
@@ -173,22 +177,89 @@ func drawPortrait(hdc uintptr, id, name string, x, y int32, size int32, ring uin
 	}
 }
 
-// icona di un obiettivo: cerchio colorato con un simbolo
+// icona di un obiettivo: la sagoma ufficiale (da CommunityDragon) colorata, in un cerchio
 func objIcon(name string) (string, string) {
 	n := strings.ToLower(name)
 	switch {
+	case strings.Contains(n, "antico"):
+		return "elder", "#B8F0FF"
 	case strings.Contains(n, "drag"):
-		return "🜂", "#FF8A3D"
+		return "dragon", "#FF8A3D"
 	case strings.Contains(n, "baron") || strings.Contains(n, "barone"):
-		return "♛", "#A77BFF"
+		return "baron", "#B48CFF"
 	case strings.Contains(n, "araldo"):
-		return "◉", "#B48CFF"
+		return "herald", "#C79BFF"
 	case strings.Contains(n, "larve"):
-		return "✺", "#9C7BFF"
+		return "grub", "#A98BFF"
 	case strings.Contains(n, "atakhan"):
-		return "☠", "#FF5C5C"
+		return "", "#FF5C5C"
 	}
-	return "◆", "#38D6FF"
+	return "", "#38D6FF"
+}
+
+func objIconURL(kind string) string {
+	base := "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-match-history/global/default/"
+	if kind == "grub" {
+		return base + "right_icons_grub.png"
+	}
+	return base + kind + "-100.png"
+}
+
+// sagoma dell'icona (solo trasparenza) colorata e ridimensionata, sopra lo sfondo
+func tintedBits(kind string, size int, col, bg uint32) []byte {
+	key := "obj:" + kind + "|" + itoa(size) + "|" + itoa(int(col))
+	portraitMu.Lock()
+	if px, ok := portraitPix[key]; ok {
+		portraitMu.Unlock()
+		return px
+	}
+	portraitMu.Unlock()
+	src := remoteImage("obj:"+kind, objIconURL(kind), filepath.Join(dataDir, "icone", kind+".png"))
+	if src == nil {
+		return nil
+	}
+	b := src.Bounds()
+	px := make([]byte, size*size*4)
+	cr, cg, cb := float64(col&0xFF), float64(col>>8&0xFF), float64(col>>16&0xFF)
+	br, bgg, bb := float64(bg&0xFF), float64(bg>>8&0xFF), float64(bg>>16&0xFF)
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			var a float64
+			for sy := 0; sy < 2; sy++ {
+				for sx := 0; sx < 2; sx++ {
+					fx := (float64(x) + 0.25 + 0.5*float64(sx)) * float64(b.Dx()) / float64(size)
+					fy := (float64(y) + 0.25 + 0.5*float64(sy)) * float64(b.Dy()) / float64(size)
+					_, _, _, al := src.At(b.Min.X+int(fx), b.Min.Y+int(fy)).RGBA()
+					a += float64(al) / 65535
+				}
+			}
+			a /= 4
+			i := (y*size + x) * 4
+			px[i] = byte(cb*a + bb*(1-a))
+			px[i+1] = byte(cg*a + bgg*(1-a))
+			px[i+2] = byte(cr*a + br*(1-a))
+		}
+	}
+	portraitMu.Lock()
+	portraitPix[key] = px
+	portraitMu.Unlock()
+	return px
+}
+
+func drawObjIcon(hdc uintptr, name string, r rect) {
+	kind, col := objIcon(name)
+	bg := rgb("#24202A")
+	roundRect(hdc, r, r.r-r.l, bg, rgb(col))
+	in := int((r.r - r.l) * 62 / 100)
+	if kind != "" {
+		if px := tintedBits(kind, in, uint32(rgb(col)), uint32(bg)); px != nil {
+			off := (r.r - r.l - int32(in)) / 2
+			blitBGRA(hdc, r.l+off, r.t+off, in, px)
+			return
+		}
+	}
+	d := (r.r - r.l) / 3 // in attesa dell'icona: un pallino colorato
+	roundRect(hdc, rect{r.l + d, r.t + d, r.r - d, r.b - d}, d, rgb(col), rgb(col))
 }
 
 // scheda in stile "card": ritratto, KDA, CS e timer degli obiettivi
@@ -260,11 +331,9 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 		fillRect(hdc, rect{x + 1, cy, x + width - 1, cy + 1}, rgb("#2C2F3A"))
 		cy += sc(6)
 		for _, o := range c.Objs {
-			sym, col := objIcon(o.Text)
 			is := sc(34)
 			ir := rect{left + sc(2), cy + (objH-is)/2, left + sc(2) + is, cy + (objH-is)/2 + is}
-			roundRect(hdc, ir, is, rgb("#24202A"), rgb(col))
-			drawText(hdc, sym, ir, rgb(col), symFont(int(17*k+0.5)), dtCenter)
+			drawObjIcon(hdc, o.Text, ir)
 			nx := ir.r + sc(12)
 			drawText(hdc, o.Text, rect{nx, cy + sc(4), right, cy + sc(22)}, label, font(int(12*k+0.5), true), dtLeft|dtEndEllipsis)
 			drawText(hdc, o.Right, rect{nx, cy + sc(21), right, cy + objH - sc(2)}, rgb(o.Color), font(int(15*k+0.5), true), dtLeft)
