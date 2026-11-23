@@ -146,10 +146,9 @@ function syncBar(st){
   if(!on){ if(el){ el.classList.add('done'); setTimeout(()=>el.remove(), 600); if(!S._syncReload){ S._syncReload=true; render(true); } } return; }
   S._syncReload = false;
   if(!el){ el = document.createElement('div'); el.id='syncbar'; el.innerHTML='<div class="sbtxt"></div><div class="sbtrack"><i></i></div>'; document.body.appendChild(el); }
-  const steps = {meta:'Controllo il meta delle corsie', tier:'Scarico la tier list del tuo elo', build:'Scarico build, rune e counter di ogni campione'};
-  const n = {meta:0, tier:1, build:2}[st.step] ?? 0, frac = st.total ? st.done/st.total : 0;
-  const pctAll = Math.round(((n + frac) / 3) * 100);
-  el.querySelector('.sbtxt').innerHTML = `<b>Aggiorno i dati OP.GG</b> · ${steps[st.step]||''}${st.total?` <span class="dim">${st.done}/${st.total}</span>`:''}<span class="sp"></span><b>${pctAll}%</b>`;
+  const pctAll = st.step==='elo' && st.total ? Math.max(1, Math.round(st.done/st.total*100)) : 0;
+  const what = st.step==='elo' ? `Tier list e build · ${esc(st.label||'')}` : 'Controllo il meta delle corsie';
+  el.querySelector('.sbtxt').innerHTML = `<b>Aggiorno i dati OP.GG</b> · ${what}<span class="sp"></span><b>${pctAll}%</b>`;
   el.querySelector('.sbtrack i').style.width = pctAll+'%';
 }
 async function poll(){

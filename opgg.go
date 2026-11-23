@@ -675,7 +675,10 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 		o.jobs[ot] = j
 	}
 	stale := len(j.Rows) == 0 || time.Since(j.At) > 12*time.Hour || j.Patch != curPatch()
-	start := stale && !j.Busy && time.Since(o.failAt) > 2*time.Minute
+	syncMu.Lock()
+	syncing := syncState.Running
+	syncMu.Unlock()
+	start := stale && !syncing && !j.Busy && time.Since(o.failAt) > 2*time.Minute // durante l'aggiornamento completo ci pensa lui
 	if start {
 		j.Busy, j.Done = true, 0
 	}
@@ -883,21 +886,53 @@ func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 	return b, err
 }
 
+// righe della tier list dalle statistiche per ruolo di una scheda campione
+func posRows(champ int, d any) []opggMetaRow {
+	var out []opggMetaRow
+	for _, x := range ogl(d, "summary", "positions") {
+		ps := opgg2pos[strings.ToLower(ogs(x, "name"))]
+		st := og(x, "stats")
+		if ps == "" || ogi(st, "play") == 0 {
+			continue
+		}
+		// OP.GG arrotonda il win rate a due cifre: lo ricalcolo dalle vittorie per stile di gioco
+		wr := ogf(st, "win_rate")
+		rn, rw := 0, 0
+		for _, rl := range ogl(x, "roles") {
+			rn += ogi(rl, "stats", "play")
+			rw += ogi(rl, "stats", "win")
+		}
+		if rn > 100 && math.Abs(float64(rw)/float64(rn)-wr) < 0.012 {
+			wr = float64(rw) / float64(rn)
+		}
+		out = append(out, opggMetaRow{Champion: champ, Pos: ps, Play: ogi(st, "play"), WinRate: wr,
+			PickRate: ogf(st, "pick_rate"), BanRate: ogf(st, "ban_rate"), RoleRate: ogf(st, "role_rate"),
+			Tier: ogi(st, "tier_data", "tier"), Rank: ogi(st, "tier_data", "rank")})
+	}
+	return out
+}
+
 func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error) {
+	b, _, err := opggBuildFetchRows(champ, pos, mode, tf, ot, ck)
+	return b, err
+}
+
+func opggBuildFetchRows(champ int, pos, mode, tf, ot, ck string) (BuildResult, []opggMetaRow, error) {
 	if err := opgg.ensureChamps(); err != nil {
-		return BuildResult{}, err
+		return BuildResult{}, nil, err
 	}
 	opgg.mu.Lock()
 	key := opgg.keys[champ]
 	opgg.mu.Unlock()
 	if key == "" {
-		return BuildResult{}, errors.New("op.gg non disponibile")
+		return BuildResult{}, nil, errors.New("op.gg non disponibile")
 	}
 	args := map[string]any{"game_mode": mode, "champion": key, "position": pos2opgg[pos], "desired_output_fields": []string{
 		"data.summary.average_stats.{ban_rate,pick_rate,play,rank,tier,win_rate}",
 		"data.summary.positions[].name",
 		"data.summary.positions[].stats.{play,role_rate,win_rate,pick_rate,ban_rate}",
 		"data.summary.positions[].stats.tier_data.{tier,rank}",
+		"data.summary.positions[].roles[].stats.{play,win}",
 		"data.runes.{primary_page_id,primary_rune_ids[],secondary_page_id,secondary_rune_ids[],stat_mod_ids[],play,win,pick_rate}",
 		"data.core_items.{ids[],pick_rate,play,win}",
 		"data.boots.{ids[],pick_rate,play,win}",
@@ -918,7 +953,7 @@ func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error
 	v, err := opgg.call("lol_get_champion_analysis", args)
 	if err != nil {
 		log.Printf("op.gg build %s %s: %v", key, pos, err)
-		return BuildResult{}, err
+		return BuildResult{}, nil, err
 	}
 	d := og(v, "data")
 	a := og(d, "summary", "average_stats")
@@ -926,7 +961,7 @@ func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error
 		Patch: majorMinor(static.version())}
 	r.Games = ogi(a, "play")
 	if r.Games == 0 {
-		return r, errors.New("op.gg: nessun dato")
+		return r, nil, errors.New("op.gg: nessun dato")
 	}
 	r.Matches = r.Games
 	r.WinRate, r.PickRate, r.BanRate = ogf(a, "win_rate"), ogf(a, "pick_rate"), ogf(a, "ban_rate")
@@ -1062,7 +1097,7 @@ func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error
 	opgg.mu.Lock()
 	opgg.builds[ck] = opggBuildCache{r, time.Now(), curPatch()}
 	opgg.mu.Unlock()
-	return r, nil
+	return r, posRows(champ, d), nil
 }
 
 // ---------- sincronizzazione all'avvio ----------
@@ -1075,6 +1110,7 @@ type OpggSync struct {
 	Done    int    `json:"done"`
 	Total   int    `json:"total"`
 	Error   string `json:"error,omitempty"`
+	Label   string `json:"label,omitempty"`
 }
 
 var (
@@ -1104,6 +1140,15 @@ func setSync(step string, done, total int) {
 	syncMu.Unlock()
 }
 
+// tutti gli elo di OP.GG: prima il tuo, poi gli altri
+var opggAllTiers = []string{"all", "iron", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "master", "grandmaster",
+	"challenger", "gold_plus", "platinum_plus", "emerald_plus", "diamond_plus", "master_plus"}
+
+var opggTierName = map[string]string{"all": "tutti i ranghi", "iron": "Ferro", "bronze": "Bronzo", "silver": "Argento", "gold": "Oro",
+	"platinum": "Platino", "emerald": "Smeraldo", "diamond": "Diamante", "master": "Maestro", "grandmaster": "Gran Maestro",
+	"challenger": "Challenger", "gold_plus": "Oro+", "platinum_plus": "Platino+", "emerald_plus": "Smeraldo+", "diamond_plus": "Diamante+",
+	"master_plus": "Maestro+"}
+
 func opggWarmup() {
 	if getSettings().OpggOff {
 		return
@@ -1113,22 +1158,37 @@ func opggWarmup() {
 	for i := 0; i < 60 && curPatch() == ""; i++ { // aspetto di sapere la patch attuale
 		time.Sleep(time.Second)
 	}
-	ot := opggTier(autoTier())
-	if ot == "" {
-		ot = "all"
+	mine := opggTier(autoTier())
+	if mine == "" {
+		mine = "all"
+	}
+	order := []string{mine}
+	for _, t := range opggAllTiers {
+		if t != mine {
+			order = append(order, t)
+		}
 	}
 	path := filepath.Join(opggDir(), "sync.json")
-	var last struct {
+	type stamp struct {
 		At    time.Time `json:"at"`
 		Patch string    `json:"patch"`
-		Tier  string    `json:"tier"`
 	}
+	last := map[string]stamp{}
 	readJSON(path, &last)
-	if last.Patch == curPatch() && last.Tier == ot && time.Since(last.At) < 12*time.Hour {
-		return // dati salvati ancora buoni: niente da scaricare
+	var todoTiers []string
+	for _, t := range order {
+		maxAge := 24 * time.Hour // gli altri elo una volta al giorno
+		if t == mine || t == "all" {
+			maxAge = 12 * time.Hour
+		}
+		if st, ok := last[t]; !ok || st.Patch != curPatch() || time.Since(st.At) > maxAge {
+			todoTiers = append(todoTiers, t)
+		}
 	}
-	log.Printf("op.gg: scarico i dati aggiornati (patch %s, elo %s)", curPatch(), ot)
-	// 1) meta delle corsie
+	if len(todoTiers) == 0 {
+		return // dati salvati ancora buoni per tutti gli elo: niente da scaricare
+	}
+	log.Printf("op.gg: scarico i dati aggiornati (patch %s, %d elo)", curPatch(), len(todoTiers))
 	setSync("meta", 0, 1)
 	opgg.mu.Lock()
 	opgg.metaAt = time.Time{}
@@ -1139,78 +1199,93 @@ func opggWarmup() {
 		syncMu.Unlock()
 		return
 	}
+	if err := opgg.ensureChamps(); err != nil {
+		return
+	}
 	opgg.mu.Lock()
 	meta := opgg.meta
 	opgg.mu.Unlock()
-	// 2) tier list del tuo elo
-	setSync("tier", 0, 1)
-	opgg.mu.Lock()
-	j := opgg.jobs[ot]
-	if j == nil {
-		j = &opggTierJob{Tier: ot}
-		readJSON(filepath.Join(opggDir(), "tier4_"+ot+".json"), j) // intanto si vede quella salvata
-		opgg.jobs[ot] = j
-	}
-	wait := j.Busy
-	if !wait {
-		j.Busy, j.Done = true, 0
-	}
-	opgg.mu.Unlock()
-	if wait {
-		for {
-			time.Sleep(time.Second)
-			opgg.mu.Lock()
-			b := j.Busy
-			opgg.mu.Unlock()
-			if !b {
-				break
-			}
-		}
-	} else {
-		opgg.runTierJob(j, meta)
-	}
-	// 3) build di ogni campione in ogni ruolo per il tuo elo
 	type pair struct {
 		c   int
 		pos string
 	}
-	var todo []pair
+	var pairs []pair
 	for _, r := range meta {
 		if knownChamp(r.Champion) && (r.RoleRate >= 0.08 || r.Play >= 3000) {
-			todo = append(todo, pair{r.Champion, r.Pos})
+			pairs = append(pairs, pair{r.Champion, r.Pos})
 		}
 	}
-	tf := autoTier()
-	setSync("build", 0, len(todo))
-	ch := make(chan pair)
-	var wg sync.WaitGroup
-	var done, fails int
-	var dmu sync.Mutex
-	for w := 0; w < 5; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for p := range ch {
-				ck := fmt.Sprintf("%d|%s|%s|%s", p.c, p.pos, "ranked", opggTier(tf))
-				_, err := opggBuildFetch(p.c, p.pos, "ranked", tf, opggTier(tf), ck)
-				dmu.Lock()
-				done++
-				if err != nil {
-					fails++
+	total := len(pairs) * len(todoTiers)
+	done := 0
+	for ti, t := range todoTiers {
+		bt := t // chiave delle build: "" = tutti i ranghi
+		if t == "all" {
+			bt = ""
+		}
+		syncMu.Lock()
+		syncState = OpggSync{Running: true, Step: "elo", Done: done, Total: total,
+			Label: fmt.Sprintf("%s (%d/%d)", opggTierName[t], ti+1, len(todoTiers))}
+		syncMu.Unlock()
+		rows := map[string]opggMetaRow{}
+		var mu sync.Mutex
+		fails := 0
+		ch := make(chan pair)
+		var wg sync.WaitGroup
+		for w := 0; w < 8; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for p := range ch {
+					ck := fmt.Sprintf("%d|%s|%s|%s", p.c, p.pos, "ranked", bt)
+					var rr []opggMetaRow
+					var err error
+					for try := 0; try < 2; try++ {
+						_, rr, err = opggBuildFetchRows(p.c, p.pos, "ranked", "", bt, ck)
+						if err == nil || strings.Contains(err.Error(), "nessun dato") {
+							break
+						}
+						time.Sleep(time.Second)
+					}
+					mu.Lock()
+					if err != nil {
+						fails++
+					}
+					for _, r := range rr {
+						rows[fmt.Sprintf("%d|%s", r.Champion, r.Pos)] = r
+					}
+					done++
+					syncMu.Lock()
+					syncState.Done = done
+					syncMu.Unlock()
+					mu.Unlock()
 				}
-				setSync("build", done, len(todo))
-				dmu.Unlock()
-			}
-		}()
-	}
-	for _, p := range todo {
-		ch <- p
-	}
-	close(ch)
-	wg.Wait()
-	opgg.saveBuilds()
-	log.Printf("op.gg: build scaricate %d/%d", done-fails, len(todo))
-	if fails < len(todo)/3 {
-		writeJSON(path, map[string]any{"at": time.Now(), "patch": curPatch(), "tier": ot})
+			}()
+		}
+		for _, p := range pairs {
+			ch <- p
+		}
+		close(ch)
+		wg.Wait()
+		opgg.saveBuilds()
+		log.Printf("op.gg %s: %d build, %d righe tier list, %d errori", t, len(pairs)-fails, len(rows), fails)
+		if fails > len(pairs)/3 {
+			continue
+		}
+		var list []opggMetaRow
+		for _, r := range rows {
+			list = append(list, r)
+		}
+		opgg.mu.Lock()
+		j := opgg.jobs[t]
+		if j == nil {
+			j = &opggTierJob{Tier: t}
+			opgg.jobs[t] = j
+		}
+		j.Rows, j.At, j.Patch = list, time.Now(), curPatch()
+		cp := *j
+		opgg.mu.Unlock()
+		writeJSON(filepath.Join(opggDir(), "tier4_"+t+".json"), &cp)
+		last[t] = stamp{time.Now(), curPatch()}
+		writeJSON(path, last)
 	}
 }
