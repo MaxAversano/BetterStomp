@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="it"><head><meta charset="utf-8"><title>BetterStomp · Overlay streaming</title>
+<style>
+html,body{margin:0;width:1920px;height:1080px;background:transparent;overflow:hidden;font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;color:#fff}
+.card{position:absolute;display:flex;gap:22px;align-items:center;padding:22px 30px 22px 22px;border-radius:30px;min-width:470px}
+.top-left{top:40px;left:40px}.top-right{top:40px;right:40px}.bottom-left{bottom:40px;left:40px}.bottom-right{bottom:40px;right:40px}
+.glass{background:linear-gradient(135deg,rgba(20,18,48,.78),rgba(12,14,32,.7));backdrop-filter:blur(14px);border:1.5px solid rgba(139,108,255,.55);box-shadow:0 20px 60px -20px rgba(0,0,0,.7),inset 0 0 40px rgba(139,108,255,.12)}
+.solid{background:#0f1126;border:1.5px solid #2b3060}
+.minimal{background:transparent;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+.emb{width:120px;height:120px;object-fit:contain;filter:drop-shadow(0 10px 20px rgba(0,0,0,.6))}
+.name{font-size:20px;font-weight:600;color:#c6cbe6}
+.rank{font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-.02em}
+.lp{background:linear-gradient(135deg,#8b6cff,#38d6ff);-webkit-background-clip:text;color:transparent}
+.row{display:flex;gap:14px;align-items:center;margin-top:8px;font-size:20px;font-weight:600}
+.w{color:#3ee6a0}.l{color:#ff5c7a}.m{color:#9aa3c7}
+.goal{margin-top:12px;font-size:16px;color:#c6cbe6;font-weight:600}
+.bar{height:10px;border-radius:10px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:6px;width:330px}
+.bar i{display:block;height:100%;border-radius:10px;background:linear-gradient(90deg,#8b6cff,#38d6ff);box-shadow:0 0 14px #8b6cff;transition:width 1s}
+</style></head><body><div id="o"></div>
+<script>
+const TIER=['IRON','BRONZE','SILVER','GOLD','PLATINUM','EMERALD','DIAMOND','MASTER','GRANDMASTER','CHALLENGER'];
+const IT={IRON:'Ferro',BRONZE:'Bronzo',SILVER:'Argento',GOLD:'Oro',PLATINUM:'Platino',EMERALD:'Smeraldo',DIAMOND:'Diamante',MASTER:'Maestro',GRANDMASTER:'Gran Maestro',CHALLENGER:'Challenger'};
+const DIV=['IV','III','II','I'];
+const apex=t=>['MASTER','GRANDMASTER','CHALLENGER'].includes(t);
+function score(t,d,lp){ const i=TIER.indexOf(t); if(i<0) return 0; if(apex(t)) return 2800+(lp||0); return i*400+Math.max(0,DIV.indexOf(d))*100+(lp||0); }
+const preview=location.search.includes('preview');
+async function tick(){
+  let d; try{ d=await (await fetch('/api/obs')).json(); }catch(e){ return; }
+  const s=d.stream||{};
+  let r=d.rank, name=d.name, today=d.today;
+  if((!r||!r.tier||r.tier==='NONE') && preview){ r={tier:'EMERALD',division:'II',leaguePoints:47,wins:61,losses:52}; name=name||'Il tuo nome'; today=today||{w:3,l:1}; }
+  const o=document.getElementById('o');
+  if(!r||!r.tier||r.tier==='NONE'){ o.innerHTML= preview?'':''; return; }
+  const rk=IT[r.tier]+(apex(r.tier)?'':' '+r.division);
+  const games=r.wins+r.losses, wr=games?Math.round(r.wins*100/games):0;
+  const cur=score(r.tier,r.division,r.leaguePoints), goal=score(s.goalTier,s.goalDivision,0);
+  const reached=cur>=goal, prog=goal>0?Math.min(100,cur/goal*100):0;
+  const goalTxt=IT[s.goalTier]+(apex(s.goalTier)?'':' '+s.goalDivision);
+  o.innerHTML=`<div class="card ${s.corner||'top-left'} ${s.style||'glass'}">
+    <img class="emb" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-${r.tier.toLowerCase()}.png" onerror="this.style.display='none'">
+    <div><div class="name">${(name||'').replace(/</g,'&lt;')}</div><div class="rank">${rk} <span class="lp">${r.leaguePoints} LP</span></div>
+    <div class="row">${s.showSession&&today?`<span>Oggi <span class="w">${today.w}V</span> <span class="l">${today.l}S</span></span>`:''}${s.showWinrate?`<span class="m">${wr}% WR · ${games} partite</span>`:''}</div>
+    ${s.showGoal?`<div class="goal">${reached?'🏆 Obiettivo raggiunto: '+goalTxt:`Obiettivo: ${goalTxt} · mancano ${goal-cur} LP`}</div><div class="bar"><i style="width:${reached?100:prog}%"></i></div>`:''}</div></div>`;
+}
+tick(); setInterval(tick,5000);
+</script></body></html>

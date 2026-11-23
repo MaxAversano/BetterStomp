@@ -1,0 +1,179 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+// Durate (in secondi) dei timer di gioco. Modificabili dalle impostazioni overlay
+// perché Riot le cambia spesso tra una stagione e l'altra.
+type Timers struct {
+	DragonFirst   float64 `json:"dragonFirst"`
+	DragonRespawn float64 `json:"dragonRespawn"`
+	ElderRespawn  float64 `json:"elderRespawn"`
+	GrubsFirst    float64 `json:"grubsFirst"`
+	HeraldFirst   float64 `json:"heraldFirst"`
+	AtakhanFirst  float64 `json:"atakhanFirst"`
+	BaronFirst    float64 `json:"baronFirst"`
+	BaronRespawn  float64 `json:"baronRespawn"`
+	CampFirst     float64 `json:"campFirst"`
+	BuffFirst     float64 `json:"buffFirst"`
+	CampRespawn   float64 `json:"campRespawn"`
+	BuffRespawn   float64 `json:"buffRespawn"`
+	BaronBuff     float64 `json:"baronBuff"`
+	ElderBuff     float64 `json:"elderBuff"`
+	RelicFirst    float64 `json:"relicFirst"`
+	RelicRespawn  float64 `json:"relicRespawn"`
+}
+
+type Widget struct {
+	On bool    `json:"on"`
+	X  float64 `json:"x"` // 0..1 frazione dello schermo
+	Y  float64 `json:"y"`
+}
+
+type OverlaySettings struct {
+	Enabled       bool    `json:"enabled"`
+	Scale         float64 `json:"scale"`
+	CS            Widget  `json:"cs"`
+	Objectives    Widget  `json:"objectives"`
+	Camps         Widget  `json:"camps"`
+	Buffs         Widget  `json:"buffs"`
+	Deaths        Widget  `json:"deaths"`
+	ItemDiff      Widget  `json:"itemDiff"`
+	Loading       Widget  `json:"loading"`
+	Minimap       bool    `json:"minimap"`
+	MinimapSize   int     `json:"minimapSize"`   // lato della minimappa in pixel
+	MinimapRight  int     `json:"minimapRight"`  // distanza dal bordo destro
+	MinimapBottom int     `json:"minimapBottom"` // distanza dal bordo inferiore
+	Timers        Timers  `json:"timers"`
+}
+
+type StreamSettings struct {
+	GoalTier     string `json:"goalTier"`
+	GoalDivision string `json:"goalDivision"`
+	ShowGoal     bool   `json:"showGoal"`
+	ShowSession  bool   `json:"showSession"`
+	ShowWinrate  bool   `json:"showWinrate"`
+	Corner       string `json:"corner"`
+	Style        string `json:"style"`
+	Queue        string `json:"queue"`
+}
+
+type Settings struct {
+	Theme         string          `json:"theme"`
+	Region        string          `json:"region"`
+	RiotAPIKey    string          `json:"riotApiKey"`
+	EngineEnabled bool            `json:"engineEnabled"`
+	AutoRunes     bool            `json:"autoRunes"`
+	AutoSpells    bool            `json:"autoSpells"`
+	AutoItems     bool            `json:"autoItems"`
+	PreferPersonal bool           `json:"preferPersonal"`
+	FlashKey      string          `json:"flashKey"`
+	DefaultMode   string          `json:"defaultMode"`
+	DefaultTier   string          `json:"defaultTier"`
+	LeaguePath    string          `json:"leaguePath"`
+	Premium       bool            `json:"premium"`
+	Animations    bool            `json:"animations"`
+	Overlay       OverlaySettings `json:"overlay"`
+	Stream        StreamSettings  `json:"stream"`
+}
+
+func defaultSettings() Settings {
+	return Settings{
+		Theme: "dark", Region: "euw1", AutoRunes: true, AutoSpells: true, AutoItems: true,
+		FlashKey: "F", DefaultMode: "ranked", DefaultTier: "auto", EngineEnabled: true, Animations: true,
+		Overlay: OverlaySettings{
+			Enabled: true, Scale: 1,
+			CS:         Widget{true, 0.012, 0.30},
+			Objectives: Widget{true, 0.012, 0.38},
+			Camps:      Widget{true, 0.012, 0.55},
+			Buffs:      Widget{true, 0.40, 0.10},
+			Deaths:     Widget{true, 0.012, 0.78},
+			ItemDiff:   Widget{true, 0.39, 0.16},
+			Loading:    Widget{true, 0.5, 0.06},
+			Minimap:    true, MinimapSize: 280, MinimapRight: 6, MinimapBottom: 6,
+			Timers: Timers{
+				DragonFirst: 300, DragonRespawn: 300, ElderRespawn: 360,
+				GrubsFirst: 480, HeraldFirst: 900, AtakhanFirst: 1200,
+				BaronFirst: 1500, BaronRespawn: 360,
+				CampFirst: 90, BuffFirst: 90, CampRespawn: 135, BuffRespawn: 300,
+				BaronBuff: 180, ElderBuff: 150, RelicFirst: 60, RelicRespawn: 40,
+			},
+		},
+		Stream: StreamSettings{GoalTier: "DIAMOND", GoalDivision: "IV", ShowGoal: true, ShowSession: true,
+			ShowWinrate: true, Corner: "top-left", Style: "glass", Queue: "RANKED_SOLO_5x5"},
+	}
+}
+
+var (
+	dataDir   string
+	settingsMu sync.RWMutex
+	settings  Settings
+)
+
+func initDataDir() {
+	exe, err := os.Executable()
+	dir := "."
+	if err == nil {
+		dir = filepath.Dir(exe)
+	}
+	dataDir = filepath.Join(dir, "BetterStomp-data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		// cartella non scrivibile (es. Programmi): ripiego su AppData
+		if la := os.Getenv("LOCALAPPDATA"); la != "" {
+			dataDir = filepath.Join(la, "BetterStomp")
+		} else {
+			dataDir = filepath.Join(os.TempDir(), "BetterStomp")
+		}
+		os.MkdirAll(dataDir, 0o755)
+	}
+}
+
+func loadSettings() {
+	s := defaultSettings()
+	if b, err := os.ReadFile(filepath.Join(dataDir, "settings.json")); err == nil {
+		json.Unmarshal(b, &s)
+	}
+	if s.Overlay.Scale <= 0 {
+		s.Overlay.Scale = 1
+	}
+	settingsMu.Lock()
+	settings = s
+	settingsMu.Unlock()
+}
+
+func getSettings() Settings {
+	settingsMu.RLock()
+	defer settingsMu.RUnlock()
+	return settings
+}
+
+func saveSettings(s Settings) error {
+	settingsMu.Lock()
+	settings = s
+	settingsMu.Unlock()
+	return writeJSON(filepath.Join(dataDir, "settings.json"), s)
+}
+
+func writeJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", " ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func readJSON(path string, v any) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
