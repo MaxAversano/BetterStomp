@@ -152,8 +152,9 @@ async function poll(){
 const TIER_COL = {IRON:'#9a8f8b',BRONZE:'#c8865a',SILVER:'#b4c0cf',GOLD:'#f0c25a',PLATINUM:'#3fd0c9',EMERALD:'#3ee6a0',DIAMOND:'#7aa7ff',MASTER:'#c77dff',GRANDMASTER:'#ff6b81',CHALLENGER:'#ffd76a'};
 function rankLine(n, q){
   const ok = q && q.tier && q.tier!=='NONE';
+  const g = ok ? q.wins+q.losses : 0, wr = g ? q.wins/g : 0;
   return `<div class="rkline">${ok?`<img src="${CD}${q.tier.toLowerCase()}.png" onerror="this.style.visibility='hidden'">`:'<span class="rkph"></span>'}<span class="muted sp">${n}</span>
-    ${ok?`<b style="color:${TIER_COL[q.tier]}">${rankTxt(q)} ${q.leaguePoints} LP</b>`:'<span class="dim">Non classificato</span>'}</div>`;
+    ${ok?`<div class="right"><b style="color:${TIER_COL[q.tier]}">${rankTxt(q)} ${q.leaguePoints} LP</b><div class="tiny"><b class="${wr>=.5?'good':'bad'}">${pct(wr,0)} WR</b> <span class="dim">${q.wins}V - ${q.losses}S</span></div></div>`:'<span class="dim">Non classificato</span>'}</div>`;
 }
 function recentStrip(p){
   const ms = (p.matches||[]).filter(m=>!m.remake);
@@ -174,19 +175,19 @@ function renderSide(){
     h += `<div class="side-head"><div class="av3"><img src="${profImg(s.profileIconId)}"><span class="lvl">${s.summonerLevel}</span></div>
       <div><div class="name">${esc(s.gameName)} <span class="dim">#${esc(s.tagLine)}</span></div>
       <div class="tiny muted">${p? (p.roles.enough? 'Ruolo: '+POS[p.roles.main]+(p.roles.second?' / '+POS[p.roles.second]:'') : `Ruolo: servono 20 partite (${p.roles.games}/20)`) : 'Carico il profilo…'}</div></div></div>`;
-    if(p) h += recentStrip(p);
-    h += `<div class="card side-card">${rankLine('Classificata Solo/Duo', c.ranked?.RANKED_SOLO_5x5)}${rankLine('Classificata Flex', c.ranked?.RANKED_FLEX_SR)}
+    h += `<div class="card side-card">${rankLine('Solo/Duo', c.ranked?.RANKED_SOLO_5x5)}${rankLine('Flex', c.ranked?.RANKED_FLEX_SR)}
       ${p?`<div class="rkline"><span class="rkph">📅</span><span class="muted sp">Oggi (Solo/Duo)</span><b><span class="good">${p.today.w}V</span> - <span class="bad">${p.today.l}S</span></b></div>`:''}</div>`;
-    if(p?.champs?.length){
-      const list = p.champs.slice(0, more.champs?10:4);
-      h += `<div class="card side-card"><h3>Rendimento campioni</h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
+    const champsSrc = p?.season?.length ? p.season : p?.champs;
+    if(champsSrc?.length){
+      const list = champsSrc.slice(0, more.champs?12:4);
+      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.season?.length?'· stagione (classificate)':'· ultime partite'}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
         <div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny dim">${x.kda.toFixed(1).replace('.',',')} KDA</div></div>
         <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
-        ${p.champs.length>4?`<button class="showmore" data-act="sidemore" data-k="champs">${more.champs?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
+        ${champsSrc.length>4?`<button class="showmore" data-act="sidemore" data-k="champs">${more.champs?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
     }
     if(p?.premades?.length){
       const list = p.premades.slice(0, more.mates?12:4);
-      h += `<div class="card side-card"><h3>Giocato di recente con</h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="lookup" data-id="${esc(x.name+'#'+x.tag)}"><span class="av2">${esc((x.name||'?').slice(0,2).toUpperCase())}</span>
+      h += `<div class="card side-card"><h3>Giocato di recente con</h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="lookup" data-id="${esc(x.name+'#'+x.tag)}">${x.icon?`<img src="${profImg(x.icon)}" style="border-radius:50%">`:`<span class="av2">${esc((x.name||'?').slice(0,2).toUpperCase())}</span>`}
         <div class="sp" style="min-width:0"><b class="ell">${esc(x.name)}<span class="dim">#${esc(x.tag)}</span></b><div class="tiny dim">${x.games} partite</div></div>
         <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr,0)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
         ${p.premades.length>4?`<button class="showmore" data-act="sidemore" data-k="mates">${more.mates?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
@@ -280,7 +281,7 @@ function profileTab(p){
   if(t==='premade'){
     if(!p.premades?.length) return `<div class="card"><div class="empty"><div class="big">👥</div>Nessun compagno ricorrente nelle ultime partite.<div class="small dim mt">Vengono mostrati i giocatori trovati con te in squadra almeno 2 volte.</div></div></div>`;
     return `<div class="card"><div class="ctitle"><h2>Con chi hai giocato</h2><span class="muted small">compagni ricorrenti nelle ultime ${p.matches.length} partite</span></div>
-      ${p.premades.map(x=>`<div class="kv" style="align-items:center"><div><b>${esc(x.name)}</b> <span class="dim">#${esc(x.tag)}</span><div class="tiny dim">ultima ${ago(x.last)}</div></div>
+      ${p.premades.map(x=>`<div class="kv" style="align-items:center"><div class="row">${x.icon?`<img class="ic s round" src="${profImg(x.icon)}">`:''}<div><b>${esc(x.name)}</b> <span class="dim">#${esc(x.tag)}</span><div class="tiny dim">ultima ${ago(x.last)}</div></div></div>
       <div class="row"><span class="badge">${x.games} partite</span><b class="${x.wins/x.games>=.5?'good':'bad'}">${pct(x.wins/x.games,0)}</b>
       <button class="btn ghost sm" data-act="lookup" data-id="${esc(x.name+'#'+x.tag)}">Profilo</button></div></div>`).join('')}</div>`;
   }

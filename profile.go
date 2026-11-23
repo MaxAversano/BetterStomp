@@ -29,6 +29,7 @@ type PPart struct {
 	Level  int    `json:"level"`
 	Win    bool   `json:"win"`
 	Place  int    `json:"place,omitempty"`
+	Icon   int    `json:"icon,omitempty"`
 }
 
 type Insight struct {
@@ -55,6 +56,7 @@ type MasteryRow struct {
 }
 
 type Premade struct {
+	Icon  int    `json:"icon"`
 	Name  string `json:"name"`
 	Tag   string `json:"tag"`
 	Games int    `json:"games"`
@@ -93,6 +95,7 @@ type Profile struct {
 	Roles    Roles                  `json:"roles"`
 	Premades []Premade              `json:"premades"`
 	Champs   []ChampRow             `json:"champs"`
+	Season   []ChampRow             `json:"season"` // rendimento della stagione (classificate) dal client
 	Today    struct {
 		W int `json:"w"`
 		L int `json:"l"`
@@ -180,6 +183,7 @@ type lcuGame struct {
 			GameName string `json:"gameName"`
 			TagLine  string `json:"tagLine"`
 			Summ     string `json:"summonerName"`
+			Icon     int    `json:"profileIcon"`
 		} `json:"player"`
 	} `json:"participantIdentities"`
 }
@@ -200,7 +204,7 @@ func convertLegacy(g lcuGame, me string) PMatch {
 			Spells: []int{p.Spell1, p.Spell2}, Level: s.Level, Win: s.Win, Place: s.Place, Pos: legacyPos(p.Timeline.Lane, p.Timeline.Role)}
 		if i, ok := ids[p.ParticipantID]; ok {
 			pl := g.Identities[i].Player
-			pp.Puuid, pp.Name, pp.Tag = pl.Puuid, pl.GameName, pl.TagLine
+			pp.Puuid, pp.Name, pp.Tag, pp.Icon = pl.Puuid, pl.GameName, pl.TagLine, pl.Icon
 			if pp.Name == "" {
 				pp.Name = pl.Summ
 			}
@@ -223,7 +227,7 @@ func convertV5(mm *MMatch, me string) PMatch {
 		}
 		pp := PPart{Puuid: p.Puuid, Name: name, Tag: p.Tag, Champ: p.ChampionID, Team: p.TeamID, Pos: p.TeamPos, K: p.Kills, D: p.Deaths, A: p.Assists,
 			CS: p.Minions + p.Neutral, Gold: p.Gold, Dmg: p.Damage, Vision: p.Vision, Items: p.items(), Spells: []int{p.Spell1, p.Spell2},
-			Level: p.Level, Win: p.Win, Place: p.Placement}
+			Level: p.Level, Win: p.Win, Place: p.Placement, Icon: p.ProfileIcon}
 		m.Parts = append(m.Parts, pp)
 		if p.Puuid == me {
 			m.Me = pp
@@ -375,7 +379,7 @@ func computeDerived(p *Profile) {
 			}
 			pm := mates[o.Puuid]
 			if pm == nil {
-				pm = &Premade{Name: o.Name, Tag: o.Tag}
+				pm = &Premade{Name: o.Name, Tag: o.Tag, Icon: o.Icon}
 				mates[o.Puuid] = pm
 			}
 			pm.Games++
@@ -384,6 +388,9 @@ func computeDerived(p *Profile) {
 			}
 			if m.Start > pm.Last {
 				pm.Last = m.Start
+				if o.Icon > 0 {
+					pm.Icon = o.Icon // icona più recente
+				}
 			}
 		}
 	}
@@ -465,6 +472,7 @@ func ownProfile(force bool) *Profile {
 	}
 	sort.Slice(p.Matches, func(i, j int) bool { return p.Matches[i].Start > p.Matches[j].Start })
 	computeDerived(p)
+	p.Season = seasonChamps(s.Puuid)
 	profMu.Lock()
 	profCache["me"] = struct {
 		p  *Profile
@@ -542,4 +550,97 @@ func searchProfile(riotID, region string) *Profile {
 	}{p, time.Now()}
 	profMu.Unlock()
 	return p
+}
+
+// statistiche di tutta la stagione dal client (lol-career-stats), solo partite classificate
+func seasonChamps(puuid string) []ChampRow {
+	var games []map[string]any
+	if lcu.getJSON("/lol-career-stats/v1/summoner-games/"+puuid, &games) != nil || len(games) == 0 {
+		return nil
+	}
+	num := func(v any) float64 {
+		switch t := v.(type) {
+		case float64:
+			return t
+		case bool:
+			if t {
+				return 1
+			}
+		}
+		return 0
+	}
+	// cerca la mappa con le statistiche della partita (kills, deaths, ...)
+	var find func(v any) map[string]any
+	find = func(v any) map[string]any {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		if _, ok := m["kills"]; ok {
+			return m
+		}
+		for _, x := range m {
+			if r := find(x); r != nil {
+				return r
+			}
+		}
+		return nil
+	}
+	maxSeason := 0.0
+	for _, g := range games {
+		if v := num(g["season"]); v > maxSeason {
+			maxSeason = v
+		}
+	}
+	type acc struct {
+		g, w     int
+		k, d, a  float64
+		cs, mins float64
+	}
+	byChamp := map[int]*acc{}
+	for _, g := range games {
+		if num(g["season"]) != maxSeason {
+			continue
+		}
+		q, _ := g["queueType"].(string)
+		if !strings.HasPrefix(q, "rank") {
+			continue
+		}
+		st := find(g["stats"])
+		if st == nil {
+			continue
+		}
+		c := int(num(g["championId"]))
+		a := byChamp[c]
+		if a == nil {
+			a = &acc{}
+			byChamp[c] = a
+		}
+		a.g++
+		if num(st["victory"]) > 0 || num(st["win"]) > 0 {
+			a.w++
+		}
+		a.k += num(st["kills"])
+		a.d += num(st["deaths"])
+		a.a += num(st["assists"])
+		a.cs += num(st["minionsKilled"]) + num(st["neutralMinionsKilled"])
+		a.mins += num(st["timePlayed"]) / 60000
+	}
+	var out []ChampRow
+	for c, a := range byChamp {
+		r := ChampRow{Champion: c, Games: a.g, Wins: a.w, KDA: (a.k + a.a) / maxF(1, a.d)}
+		if a.mins > 0 {
+			r.CSMin = a.cs / a.mins
+		}
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Games > out[j].Games })
+	return out
+}
+
+func maxF(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
