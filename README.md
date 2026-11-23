@@ -2,13 +2,14 @@
 
 **Companion app gratuita per League of Legends** (Windows): statistiche dei campioni per rango e modalità, build consigliate, assistente in champion select con import automatico, analisi delle partite, note della patch e overlay in-game e per lo streaming.
 
-<p align="center"><img src="web/logo.svg" width="96"></p>
+<p align="center"><img src="web/logo.png" width="220"></p>
 
 ## Funzioni
 
 - **Profilo**: rango Solo/Duo e Flex, ruolo principale (calcolato su almeno 20 partite), maestrie, campioni più giocati, compagni premade ricorrenti e cronologia partite con analisi automatica ("Analizza"). Ricerca di altri giocatori per Riot ID.
 - **Campioni e tier list**: win rate, pick rate, ban rate e tier da Ferro a Challenger, per Classificata Solo/Duo, Flex, Normali, ARAM, ARAM Mayhem, Arena e URF.
-- **Build**: rune, incantesimi, ordine abilità e oggetti in blocchi da **5 - 10 - 10** slot, più matchup e sinergie. Editor per le build personali.
+- **Build**: fino a 4 varianti di build per campione, ognuna con il suo win rate. Rune, incantesimi, ordine abilità e oggetti in blocchi da **5 - 10 - 10** slot, più matchup e sinergie. Editor per le build personali.
+- **Sempre aggiornata**: i dati si aggiornano da soli (ogni 5 minuti più gli eventi in tempo reale) senza ricaricare la pagina.
 - **Champion select**: suggerimenti *per matchup* o *per team comp*, correzione manuale dei campioni rilevati e import automatico di rune, incantesimi (Flash su D o F) e set di oggetti.
 - **Patch**: note ufficiali riorganizzate in schede (buff, nerf e modifiche) con aggiornamento automatico all'uscita della patch, più le differenze rilevate dai dati di gioco.
 - **Overlay in-game**: CS in tempo reale, timer degli obiettivi (dagli eventi di gioco), timer dei campi della giungla anche sulla minimappa, promemoria per la scadenza dei buff Barone/Antico, timer di respawn, vite in ARAM, differenza di valore oggetti (tenendo premuto TAB) e statistiche delle squadre (Ctrl+T).

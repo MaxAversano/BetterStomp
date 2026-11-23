@@ -12,7 +12,7 @@ import (
 )
 
 // Note della patch: pagina ufficiale Riot (it-it) riorganizzata in schede, più le
-// differenze verificate calcolate da Data Dragon. Si aggiorna da sola ogni 20 minuti.
+// differenze verificate calcolate da Data Dragon. Controlla novità ogni 5 minuti.
 
 var (
 	patchMu     sync.RWMutex
@@ -308,7 +308,7 @@ func patchLoop() {
 	}
 	refreshPatchNotes(false)
 	for {
-		time.Sleep(20 * time.Minute)
+		time.Sleep(5 * time.Minute)
 		// nuova versione di Data Dragon = nuova patch uscita sul client
 		old := static.version()
 		var versions []string

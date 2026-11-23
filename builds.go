@@ -69,7 +69,7 @@ func setPersonal(champ int, b PersonalBuild) error {
 }
 
 // build finale: statistiche + build personale + rune consigliate dal client
-func resolveBuild(champ int, pos, mode, tier string, usePersonal bool) BuildResult {
+func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant int) BuildResult {
 	if mode == "" {
 		mode = "ranked"
 	}
@@ -79,6 +79,10 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool) BuildResu
 	b := engine.ChampionStats(champ, mode, tier, pos)
 	if b.Position == "" {
 		b.Position = pos
+	}
+	if variant > 0 && variant < len(b.Variants) {
+		b.Variant = variant
+		b.Core, b.Situational = b.Variants[variant].Core, b.Variants[variant].Situational
 	}
 	if pb, ok := getPersonal(champ); ok && usePersonal {
 		pref := getSettings().PreferPersonal

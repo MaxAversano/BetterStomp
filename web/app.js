@@ -51,6 +51,30 @@ function sw(path, on){ return `<label class="switch"><input type="checkbox" data
 function getPath(o, p){ return p.split('.').reduce((a,k)=>a?.[k], o); }
 function setPath(o, p, v){ const k=p.split('.'); let x=o; k.slice(0,-1).forEach(z=>x=x[z]=x[z]||{}); x[k.at(-1)]=v; }
 
+/* ---------- aggiornamento "morbido": cambia solo ciò che è diverso, senza sfarfallii ---------- */
+function morphChildren(a, b){
+  const an=[...a.childNodes], bn=[...b.childNodes];
+  bn.forEach((y,i)=>{
+    const x = an[i];
+    if(!x){ a.appendChild(y); return; }
+    if(x.nodeType!==y.nodeType || x.nodeName!==y.nodeName){ a.replaceChild(y,x); return; }
+    if(x.nodeType!==1){ if(x.nodeValue!==y.nodeValue) x.nodeValue=y.nodeValue; return; }
+    for(const at of [...x.attributes]) if(!y.hasAttribute(at.name)) x.removeAttribute(at.name);
+    for(const at of [...y.attributes]) if(x.getAttribute(at.name)!==at.value) x.setAttribute(at.name, at.value);
+    if(x===document.activeElement && (x.tagName==='INPUT'||x.tagName==='SELECT')) return;
+    morphChildren(x,y);
+  });
+  for(let i=an.length-1;i>=bn.length;i--) a.removeChild(an[i]);
+}
+function put(el, html, soft){
+  if(!el) return;
+  if(!soft){ el.innerHTML = html; return; }
+  if(el._last === html) return;
+  const t = document.createElement('div'); t.innerHTML = html;
+  morphChildren(el, t);
+  el._last = html;
+}
+
 /* ---------- impostazioni (salvate al volo, senza ricaricare) ---------- */
 let saveTimer;
 function setSetting(path, value){
@@ -91,8 +115,14 @@ async function boot(){
   await loadStatic();
   await poll();
   setInterval(poll, 2000);
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', ()=>render());
   render();
+  // ogni 5 minuti controlla dati nuovi e aggiorna la pagina senza ricaricarla
+  setInterval(()=>softRefresh(), 5*60*1000);
+}
+function softRefresh(){
+  if(document.querySelector('.modal') || S.ui.editing) return;
+  render(true);
 }
 
 async function poll(){
@@ -105,13 +135,13 @@ async function poll(){
   navSel.innerHTML = 'Champion Select' + (c.phase==='ChampSelect'?'<span class="live"></span>':'');
   // in champion select l'app si porta da sola sulla schermata di aiuto
   if(c.phase==='ChampSelect' && S.lastPhase!=='ChampSelect' && route()[0]!=='select'){ location.hash='#/select'; }
-  if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.profile=null; }
+  if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.profile=null; S.ui.forceProf=true; setTimeout(()=>{ if(route()[0]==='profilo') render(true); }, 4000); }
   S.lastPhase = c.phase;
-  if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render();}).finally(()=>S._profLoading=false); }
+  if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
   renderSide();
   if(route()[0]==='select') updateSelect();
   if(route()[0]==='impostazioni') updateEngineBox();
-  if(route()[0]==='tier' && S.ui.tierEmpty && S.st.engine.total>0) render();
+  if(route()[0]==='tier' && S.ui.tierEmpty && S.st.engine.total>0){ S.ui.tierEmpty=false; render(true); }
 }
 
 /* ---------- sidebar: riepilogo account ---------- */
@@ -135,7 +165,7 @@ function renderSide(){
         <div class="kv"><span class="muted">Campione più giocato</span><b>${p&&p.champs?.[0]? esc(champ(p.champs[0].champion).name):'…'}</b></div>
       </div></div>`;
   } else {
-    h += `<div class="card acc"><div class="av"><img src="logo.svg" style="background:none;border:0"></div><div class="name">Benvenuto</div>
+    h += `<div class="card acc"><img class="welcome-logo" src="logo.png" alt="BetterStomp"><div class="name">Benvenuto</div>
       <p class="muted small">Apri il client di League of Legends: BetterStomp lo rileva da solo e mostra qui il riepilogo del tuo account.</p></div>`;
   }
   const e = S.st?.engine;
@@ -147,40 +177,46 @@ function renderSide(){
     </div>`;
   }
   h += `<div class="ad short">Spazio pubblicitario</div>`;
-  if(el._h !== h){ el.innerHTML = h; el._h = h; }
+  if(el._h !== h){ put(el, h, !!el._h); el._h = h; }
 }
 
 /* ---------- router ---------- */
 function route(){ return (location.hash.replace(/^#\/?/,'')||'profilo').split('/').map(decodeURIComponent); }
-function render(){
+function render(soft){
   const r = route();
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on', a.dataset.p===r[0] || (r[0]==='campione'&&a.dataset.p==='campioni')));
   const m = $('#main');
   const pages = {profilo:pageProfile, campioni:pageChampions, campione:pageChampion, tier:pageTier, select:pageSelect, patch:pagePatch, overlay:pageOverlay, streaming:pageStreaming, premium:pagePremium, impostazioni:pageSettings};
-  (pages[r[0]]||pageProfile)(m, r);
-  m.scrollTop = 0;
+  if(soft && !(pages[r[0]]||pageProfile).soft) return;
+  (pages[r[0]]||pageProfile)(m, r, soft);
+  if(!soft) m.scrollTop = 0;
 }
 
 /* ================= PROFILO ================= */
-async function pageProfile(m){
+async function pageProfile(m, r, soft){
   S.ui.ptab = S.ui.ptab || 'partite';
   const reg = S.ui.searchRegion || S.settings.region;
-  m.innerHTML = `<div class="page"><div class="card flat mb"><div class="search">
+  if(soft && !$('#pbody')) soft = false;
+  if(soft && S.ui.search) return;
+  if(soft){ S.ui.forceProf = true; }
+  else m.innerHTML = `<div class="page"><div class="card flat mb"><div class="search">
       <input type="search" id="sid" placeholder="Cerca un giocatore: Nome#TAG" value="${esc(S.ui.search||'')}">
       <select id="sreg">${opt(REGIONS, reg)}</select>
       <button class="btn" data-act="search">Cerca</button>
       ${S.ui.search?`<button class="btn ghost" data-act="myprofile">Il mio profilo</button>`:''}
     </div></div><div id="pbody"><div class="loading"><span class="spinner"></span>Carico il profilo…</div></div></div>`;
-  $('#sid').addEventListener('keydown', e=>{ if(e.key==='Enter') actions.search(); });
+  if(!soft) $('#sid').addEventListener('keydown', e=>{ if(e.key==='Enter') actions.search(); });
   let p;
   try{
     if(S.ui.search) p = await api(`/api/search?riotId=${encodeURIComponent(S.ui.search)}&region=${reg}`);
     else { p = S.profile && !S.ui.forceProf ? S.profile : await api('/api/profile'+(S.ui.forceProf?'?force=1':'')); S.ui.forceProf=false; if(!p.error) S.profile=p; }
   }catch(e){ p = {error:e.message}; }
   if(route()[0]!=='profilo') return;
+  if(soft && p.error && S.ui.prof && !S.ui.prof.error) return;
   S.ui.prof = p;
-  $('#pbody').innerHTML = profileHTML(p);
+  put($('#pbody'), profileHTML(p), soft);
 }
+pageProfile.soft = true;
 
 function profileHTML(p){
   if(p.error) return `<div class="card"><div class="empty"><div class="big">🔎</div>${esc(p.error)}
@@ -235,25 +271,28 @@ function profileTab(p){
       <div class="items">${me.items.map(x=>x?`<img src="${iImg(x)}" title="${esc(S.items[x]?.name||'')}">`:'<span class="eslot"></span>').join('')}</div>
       <div class="row gap6"><button class="btn ghost sm" data-act="analyze" data-i="${i}">Analizza</button>
         <button class="coach" data-act="coach"><span class="sparkle">✦</span> Coach AI</button></div>
-      <div class="analysis" id="an${i}" style="display:none"></div></div>`;
+      <div class="analysis" id="an${i}" style="display:${S.ui.openAn?.[g.id]?'block':'none'}">${S.ui.openAn?.[g.id]?analysisHTML(g):''}</div></div>`;
   }).join('');
 }
+function analysisHTML(g){ return (g.analysis||[]).map(a=>`<div class="ins ${a.kind}"><span class="i">${a.kind==='good'?'✓':a.kind==='bad'?'!':'i'}</span><span>${esc(a.text)}</span></div>`).join(''); }
 function qName(q){ return {420:'Solo/Duo',440:'Flex',400:'Normale',430:'Blind',490:'Rapida',450:'ARAM',2400:'ARAM Mayhem',1700:'Arena',1710:'Arena',900:'URF',1900:'URF',0:'Personalizzata'}[q] || 'Altra modalità'; }
 
 /* ================= CAMPIONI ================= */
-async function pageChampions(m){
+async function pageChampions(m, r, soft){
   const u = S.ui; u.cmode = u.cmode||S.settings.defaultMode||'ranked'; u.ctier = u.ctier||'auto'; u.cpos = u.cpos||'ALL'; u.cq = u.cq||'';
-  m.innerHTML = `<div class="page"><div class="filters">
+  if(soft && !$('#cgrid')) soft = false;
+  if(!soft) m.innerHTML = `<div class="page"><div class="filters">
       <input type="search" id="cq" placeholder="Cerca campione…" value="${esc(u.cq)}" style="width:220px">
       <select data-ui="cmode">${opt(MODES,u.cmode)}</select>
       <select data-ui="ctier">${tierOptions(u.ctier)}</select>
       <div class="chips">${isPos(u.cmode)?['ALL','TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(p=>`<span class="chip ${u.cpos===p?'on':''}" data-act="cpos" data-p="${p}">${POS[p]}</span>`).join(''):''}</div>
     </div><div id="cgrid"><div class="loading"><span class="spinner"></span></div></div></div>`;
-  $('#cq').addEventListener('input', e=>{ u.cq=e.target.value; drawChampGrid(); });
-  try{ S.ui.ctl = await api(`/api/tierlist?mode=${u.cmode}&tier=${u.ctier}&pos=`); }catch(e){ S.ui.ctl = {rows:[]}; }
-  drawChampGrid();
+  if(!soft) $('#cq').addEventListener('input', e=>{ u.cq=e.target.value; drawChampGrid(); });
+  try{ S.ui.ctl = await api(`/api/tierlist?mode=${u.cmode}&tier=${u.ctier}&pos=`); }catch(e){ if(soft) return; S.ui.ctl = {rows:[]}; }
+  drawChampGrid(soft);
 }
-function drawChampGrid(){
+pageChampions.soft = true;
+function drawChampGrid(soft){
   const u = S.ui, rows = u.ctl?.rows||[];
   const best = {};
   rows.forEach(r=>{ if(u.cpos!=='ALL' && isPos(u.cmode) && r.position!==u.cpos) return; if(!best[r.champion]||best[r.champion].games<r.games) best[r.champion]=r; });
@@ -261,19 +300,20 @@ function drawChampGrid(){
   let list = S.champList.filter(c=>!q || c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q));
   if(u.cpos!=='ALL' && isPos(u.cmode) && rows.length) list = list.filter(c=>best[+c.key]);
   const el = $('#cgrid'); if(!el) return;
-  el.innerHTML = (rows.length?'':`<div class="card flat mb small muted">Le statistiche per rango compariranno qui quando il motore avrà analizzato abbastanza partite (serve la chiave Riot API).</div>`) +
+  put(el, (rows.length?'':`<div class="card flat mb small muted">Le statistiche per rango compariranno qui quando il motore avrà analizzato abbastanza partite (serve la chiave Riot API).</div>`) +
     `<div class="cgrid">${list.map(c=>{ const r=best[+c.key]; return `<div class="ccard" data-act="openchamp" data-id="${c.id}">
       <span class="t">${r?tierBadge(r.tier):''}</span><img src="${DD}${S.v}/img/champion/${c.id}.png" loading="lazy"><div class="n">${esc(c.name)}</div>
-      <div class="wr">${r?pct(r.winRate)+' WR':esc(c.tags?.[0]||'')}</div></div>`; }).join('')}</div>`;
+      <div class="wr">${r?pct(r.winRate)+' WR':esc(c.tags?.[0]||'')}</div></div>`; }).join('')}</div>`, soft);
 }
 
 /* ================= CAMPIONE ================= */
-async function pageChampion(m, r){
+async function pageChampion(m, r, soft){
   const c = S.champList.find(x=>x.id===r[1]); if(!c){ location.hash='#/campioni'; return; }
   const key = +c.key, u = S.ui;
-  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; }
+  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; }
   u.chMode = u.chMode||u.cmode||S.settings.defaultMode||'ranked'; u.chTier = u.chTier||u.ctier||'auto';
-  m.innerHTML = `<div class="page"><div class="champhero"><div class="bg" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${c.id}_0.jpg')"></div>
+  if(soft && !$('#chbody')) soft = false;
+  if(!soft) m.innerHTML = `<div class="page"><div class="champhero"><div class="bg" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${c.id}_0.jpg')"></div>
     <div class="in"><img class="ic xl" src="${cImg(key)}"><div class="sp"><div class="kicker" style="color:#c6cbe6">${esc(c.title)}</div><h1 style="font-size:34px">${esc(c.name)}</h1>
     <div class="row wrap mt" id="chstats"></div></div>
     <div class="col" style="align-items:flex-end"><a class="btn ghost sm" href="#/campioni">← Tutti i campioni</a></div></div></div>
@@ -282,22 +322,23 @@ async function pageChampion(m, r){
     <div id="chbody"><div class="loading"><span class="spinner"></span>Calcolo la build…</div></div></div>`;
   let data, detail;
   try{
-    [data, detail] = await Promise.all([api(`/api/champion?id=${key}&mode=${u.chMode}&tier=${u.chTier}&pos=${u.chPos}`), api(`/api/static/champion/${c.id}.json`).catch(()=>null)]);
-  }catch(e){ $('#chbody').innerHTML = `<div class="card"><div class="empty">${esc(e.message)}</div></div>`; return; }
-  if(route()[1]!==c.id) return;
-  u.chData = data; u.chKey = key;
+    [data, detail] = await Promise.all([api(`/api/champion?id=${key}&mode=${u.chMode}&tier=${u.chTier}&pos=${u.chPos}`), u.chDetail?.id===c.id ? u.chDetail.d : api(`/api/static/champion/${c.id}.json`).catch(()=>null)]);
+  }catch(e){ if(!soft) $('#chbody').innerHTML = `<div class="card"><div class="empty">${esc(e.message)}</div></div>`; return; }
+  if(route()[1]!==c.id || (soft && u.editing)) return;
+  u.chData = data; u.chKey = key; u.chDetail = {id:c.id, d:detail};
+  if(u.variant >= (data.build.variants||[]).length) u.variant = 0;
   const b = data.build;
-  $('#chstats').innerHTML = b.games ? `${tierBadge(b.tierLabel)}<span class="badge">${pct(b.winRate)} WR</span><span class="badge">${pct(b.pickRate)} pick</span><span class="badge">${pct(b.banRate)} ban</span><span class="badge">${num(b.games)} partite</span>`
-    : `<span class="badge">Nessuna statistica ancora per questo filtro</span>`;
-  $('#chpos').innerHTML = isPos(u.chMode) ? (b.positions||[]).filter(p=>p.position!=='ALL'&&p.share>=0.04).map(p=>`<span class="chip ${b.position===p.position?'on':''}" data-act="chpos" data-p="${p.position}">${POS[p.position]} <span class="tiny">${pct(p.share,0)}</span></span>`).join('') : '';
-  $('#chsrc').innerHTML = b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · campione ampliato a tutti i ranghi':''}` : '';
+  put($('#chstats'), b.games ? `${tierBadge(b.tierLabel)}<span class="badge">${pct(b.winRate)} WR</span><span class="badge">${pct(b.pickRate)} pick</span><span class="badge">${pct(b.banRate)} ban</span><span class="badge">${num(b.games)} partite</span>`
+    : `<span class="badge">Nessuna statistica ancora per questo filtro</span>`, soft);
+  put($('#chpos'), isPos(u.chMode) ? (b.positions||[]).filter(p=>p.position!=='ALL'&&p.share>=0.04).map(p=>`<span class="chip ${b.position===p.position?'on':''}" data-act="chpos" data-p="${p.position}">${POS[p.position]} <span class="tiny">${pct(p.share,0)}</span></span>`).join('') : '', soft);
+  put($('#chsrc'), b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · campione ampliato a tutti i ranghi':''}` : '', soft);
   const prof = S.profile?.champs?.find(x=>x.champion===key);
-  $('#chbody').innerHTML = `<div class="grid2" style="grid-template-columns:1.4fr 1fr">
+  put($('#chbody'), `<div class="grid2" style="grid-template-columns:1.4fr 1fr">
     <div class="col gap16">
       <div class="card"><div class="ctitle"><h2>Build</h2>${b.personal?'<span class="badge goldc">Build personale</span>':''}<span class="sp"></span>
         <button class="btn sm" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>Importa nel client</button>
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'Modifica build personale'}</button></div>
-        <div id="buildbox">${buildHTML(b, data.personal)}</div></div>
+        <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div></div>
       <div class="card"><h2>Abilità</h2>${detail? abilitiesHTML(detail.data[c.id]) : '<div class="muted">Non disponibili.</div>'}</div>
     </div>
     <div class="col gap16">
@@ -309,8 +350,9 @@ async function pageChampion(m, r){
         <div class="stat"><div class="k">Win rate</div><div class="v ${prof.wins/prof.games>=.5?'good':'bad'}">${pct(prof.wins/prof.games,0)}</div></div><div class="stat"><div class="k">KDA</div><div class="v">${prof.kda.toFixed(2).replace('.',',')}</div></div></div></div>`:''}
       <div class="card flat"><div class="kicker mb">Approfondisci</div><div class="row wrap">
         ${[['u.gg',`https://u.gg/lol/champions/${c.id.toLowerCase()}/build`],['op.gg',`https://op.gg/lol/champions/${c.id.toLowerCase()}/build`],['lolalytics',`https://lolalytics.com/lol/${c.id.toLowerCase()}/build/`]].map(([n,l])=>`<a class="btn ghost sm" href="${l}" target="_blank">${n} ↗</a>`).join('')}</div></div>
-    </div></div>`;
+    </div></div>`, soft);
 }
+pageChampion.soft = true;
 
 function slotsHTML(ids, n, block, editable, wr){
   let h = '';
@@ -322,10 +364,19 @@ function slotsHTML(ids, n, block, editable, wr){
   }
   return `<div class="slots" style="margin-bottom:${wr?14:0}px">${h}</div>`;
 }
-function buildHTML(b, personal){
-  const ed = S.ui.editing;
+function variantsHTML(b, sel, act){
+  const vs = b.variants||[];
+  if(vs.length < 2 || b.personal) return '';
+  return `<div class="blocklbl"><span>Build più giocate</span><span class="small dim">${vs.length} varianti</span></div><div class="variants">${vs.map((v,i)=>`<button class="var ${i===sel?'on':''}" data-act="${act}" data-i="${i}">
+    <div class="vi">${v.boots?`<img src="${iImg(v.boots)}">`:''}${v.path.map(id=>`<img src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`).join('')}</div>
+    <div class="vl">${esc(v.label||('Build '+(i+1)))}</div><div class="vs2"><b class="${v.winRate>=.5?'good':'bad'}">${pct(v.winRate)} WR</b><span class="dim">${num(v.games)} partite · ${pct(v.share,0)}</span></div></button>`).join('')}</div>`;
+}
+function buildHTML(b, personal, variant=0, act='variant'){
+  const ed = S.ui.editing && act==='variant';
+  const v = (b.variants||[])[variant];
+  if(v && !b.personal) b = {...b, core:v.core, situational:v.situational};
   const src = ed ? (S.ui.edit ||= {starting:[...(personal?.starting||b.starting||[])], core:[...(personal?.core||b.core||[])], situational:[...(personal?.situational||b.situational||[])]}) : b;
-  return `${!ed && b.spells?.length?`<div class="blocklbl"><span>Incantesimi</span><span class="small muted">${b.spellsWR?pct(b.spellsWR)+' WR':''}</span></div><div class="row">${b.spells.map(s=>`<img class="ic" src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join('')}
+  return `${ed?'':variantsHTML(arguments[0], variant, act)}${!ed && b.spells?.length?`<div class="blocklbl"><span>Incantesimi</span><span class="small muted">${b.spellsWR?pct(b.spellsWR)+' WR':''}</span></div><div class="row">${b.spells.map(s=>`<img class="ic" src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join('')}
       ${b.skills?`<span class="sp"></span><div class="skills">${b.skills.split('>').map((k,i)=>`${i?'<span class="arr">›</span>':''}<span class="skey">${k}</span>`).join('')}</div>`:''}</div>
       ${b.skillFirst?`<div class="small muted right" style="margin-top:6px">Primi livelli: ${b.skillFirst.split('').join(' → ')}</div>`:''}`:''}
     <div class="blocklbl"><span>Inizio partita</span><span class="small dim">5 slot</span></div>${slotsHTML(src.starting,5,'starting',ed)}
@@ -359,25 +410,27 @@ function abilitiesHTML(d){
 }
 
 /* ================= TIER LIST ================= */
-async function pageTier(m){
+async function pageTier(m, r, soft){
   const u = S.ui; u.tmode = u.tmode||S.settings.defaultMode||'ranked'; u.ttier=u.ttier||'auto'; u.tpos=u.tpos||'ALL'; u.tsort=u.tsort||'score';
-  m.innerHTML = `<div class="page"><div class="row mb"><h1>Tier list</h1><span class="sp"></span><span class="small muted" id="tinfo"></span></div>
+  if(soft && !$('#tbody')) soft = false;
+  if(!soft) m.innerHTML = `<div class="page"><div class="row mb"><h1>Tier list</h1><span class="sp"></span><span class="small muted" id="tinfo"></span></div>
     <div class="filters"><select data-ui="tmode">${opt(MODES,u.tmode)}</select><select data-ui="ttier">${tierOptions(u.ttier)}</select>
     <div class="chips">${isPos(u.tmode)?['ALL','TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(p=>`<span class="chip ${u.tpos===p?'on':''}" data-act="tpos" data-p="${p}">${POS[p]}</span>`).join(''):''}</div></div>
     <div id="tbody"><div class="loading"><span class="spinner"></span></div></div></div>`;
-  let d; try{ d = await api(`/api/tierlist?mode=${u.tmode}&tier=${u.ttier}&pos=${isPos(u.tmode)?u.tpos:''}`); }catch(e){ d={rows:[]}; }
+  let d; try{ d = await api(`/api/tierlist?mode=${u.tmode}&tier=${u.ttier}&pos=${isPos(u.tmode)?u.tpos:''}`); }catch(e){ if(soft) return; d={rows:[]}; }
   if(route()[0]!=='tier') return;
   u.tdata = d; u.tierEmpty = !d.rows?.length;
-  drawTier();
+  drawTier(soft);
 }
-function drawTier(){
+pageTier.soft = true;
+function drawTier(soft){
   const u = S.ui, d = u.tdata; const el = $('#tbody'); if(!el) return;
   const e = S.st?.engine||{};
   if(!d.rows?.length){
-    el.innerHTML = `<div class="card"><div class="empty"><div class="big">📊</div><h2>Ancora nessun dato per questo filtro</h2>
+    put(el, `<div class="card"><div class="empty"><div class="big">📊</div><h2>Ancora nessun dato per questo filtro</h2>
       <p class="muted">La tier list è calcolata da BetterStomp analizzando partite pubbliche tramite la Riot API ufficiale.<br>
       ${!e.hasKey?'Inserisci la tua chiave Riot API nelle impostazioni per avviare il motore statistiche.':`Motore attivo: ${num(e.total)} partite analizzate finora${e.perHour?` (~${num(e.perHour)}/ora)`:''}. I dati crescono nel tempo e restano salvati sul PC.`}</p>
-      ${!e.hasKey?'<a class="btn" href="#/impostazioni">Apri impostazioni</a>':''}</div></div>`;
+      ${!e.hasKey?'<a class="btn" href="#/impostazioni">Apri impostazioni</a>':''}</div></div>`, soft);
     return;
   }
   $('#tinfo').textContent = `${num(d.matches)} partite · patch ${d.patch} · ${d.tier.includes('+')?TIER_IT[d.tier.replace('+','')]+'+':TIER_IT[d.tier]||'Tutti i ranghi'}`;
@@ -385,14 +438,16 @@ function drawTier(){
   const k = u.tsort, dir = u.tdir||-1;
   if(k!=='score') rows.sort((a,b)=> k==='name' ? champ(a.champion).name.localeCompare(champ(b.champion).name)*-dir : (a[k]-b[k])*dir);
   const th = (key,l) => `<th class="${u.tsort===key?'on':''}" data-act="tsort" data-k="${key}">${l}${u.tsort===key?(dir<0?' ↓':' ↑'):''}</th>`;
-  el.innerHTML = `<table class="tl"><thead><tr><th>#</th>${th('name','Campione')}${isPos(u.tmode)?'<th>Ruolo</th>':''}${th('score','Tier')}${th('winRate','Win rate')}${th('pickRate','Pick rate')}${th('banRate','Ban rate')}${th('games','Partite')}</tr></thead><tbody>
+  put(el, `<table class="tl"><thead><tr><th>#</th>${th('name','Campione')}${isPos(u.tmode)?'<th>Ruolo</th>':''}${th('score','Tier')}${th('winRate','Win rate')}${th('pickRate','Pick rate')}${th('banRate','Ban rate')}${th('games','Partite')}</tr></thead><tbody>
     ${rows.map((r,i)=>`<tr data-act="openchamp" data-id="${champ(r.champion).id}" data-pos="${r.position}"><td class="dim b">${i+1}</td><td><div class="row">${ci(r.champion,'s')}<b>${esc(champ(r.champion).name)}</b></div></td>
-    ${isPos(u.tmode)?`<td class="muted">${POS[r.position]||''}</td>`:''}<td>${tierBadge(r.tier)}</td><td class="b ${r.winRate>=.5?'good':'bad'}">${pct(r.winRate)}</td><td>${pct(r.pickRate)}</td><td>${pct(r.banRate)}</td><td class="muted">${num(r.games)}</td></tr>`).join('')}</tbody></table>`;
+    ${isPos(u.tmode)?`<td class="muted">${POS[r.position]||''}</td>`:''}<td>${tierBadge(r.tier)}</td><td class="b ${r.winRate>=.5?'good':'bad'}">${pct(r.winRate)}</td><td>${pct(r.pickRate)}</td><td>${pct(r.banRate)}</td><td class="muted">${num(r.games)}</td></tr>`).join('')}</tbody></table>`, soft);
 }
 
 /* ================= CHAMPION SELECT ================= */
-function pageSelect(m){
-  const u = S.ui; u.skind = u.skind||'matchup'; u.over = u.over||{}; u.sbuildKey='';
+function pageSelect(m, r, soft){
+  const u = S.ui;
+  if(soft && $('#selpage')){ updateSelect(true, true); return; }
+  u.skind = u.skind||'matchup'; u.over = u.over||{}; u.sbuildKey=''; u.suggLoaded=false;
   m.innerHTML = `<div class="page" id="selpage"><div class="card glow"><div class="row mb"><h1>Champion Select</h1><span class="sp"></span><span id="selphase" class="badge"></span></div>
       <div class="teams" id="teams"></div><div class="row mt small muted" id="bans"></div></div>
     <div class="grid2 mt2" style="grid-template-columns:1fr 1fr">
@@ -403,6 +458,7 @@ function pageSelect(m){
     </div></div>`;
   updateSelect(true);
 }
+pageSelect.soft = true;
 function selState(){
   const c = S.st?.client, cs = c?.champSelect, u = S.ui;
   const mine = [], theirs = [];
@@ -419,7 +475,7 @@ function selState(){
   return {cs, mine, theirs, myPos: u.spos || posMap[(myPos||'').toLowerCase()] || (S.profile?.roles?.main) || 'MIDDLE', myChamp, mode: queueMode(c?.queueId)};
 }
 function queueMode(q){ return {420:'ranked',440:'flex',400:'normal',430:'normal',490:'normal',450:'aram',2400:'mayhem',1700:'arena',1710:'arena',900:'urf',1900:'urf'}[q] || S.ui.smode || 'ranked'; }
-function updateSelect(force){
+function updateSelect(force, soft){
   if(!$('#selpage')) return;
   const s = selState(), u = S.ui;
   const sig = JSON.stringify([s.mine,s.theirs,s.myPos,s.mode,u.skind,u.sopp,s.cs?.bans,s.myChamp]);
@@ -440,34 +496,36 @@ function updateSelect(force){
     ${isPos(s.mode)?`<select data-ui="spos">${opt(['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(p=>[p,POS[p]]), s.myPos)}</select>`:''}
     ${u.skind==='matchup'?`<select data-ui="sopp" data-num="1"><option value="0">Avversario di corsia…</option>${enemies.map(e=>`<option value="${e}" ${u.sopp===e?'selected':''}>${esc(champ(e).name)}</option>`).join('')}${u.sopp&&!enemies.includes(u.sopp)?`<option value="${u.sopp}" selected>${esc(champ(u.sopp).name)}</option>`:''}</select>
       <button class="btn ghost sm" data-act="pickopp">Scegli avversario</button>`:''}`;
-  loadSuggestions(s);
+  loadSuggestions(s, soft || S.ui.suggLoaded);
+  S.ui.suggLoaded = true;
   // build del campione scelto
   const bk = `${s.myChamp}|${s.myPos}|${s.mode}`;
-  if(bk!==u.sbuildKey){ u.sbuildKey=bk; loadSelBuild(s); }
+  if(bk!==u.sbuildKey || soft){ const same = bk===u.sbuildKey; u.sbuildKey=bk; loadSelBuild(s, soft && same); }
 }
-async function loadSuggestions(s){
+async function loadSuggestions(s, soft){
   const u = S.ui, el = $('#sugg');
   const allies = s.mine.filter(x=>!x.me).map(x=>x.champ).filter(Boolean), enemies = s.theirs.map(x=>x.champ).filter(Boolean);
   const bans = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[])].filter(Boolean);
-  if(u.skind==='matchup' && !u.sopp){ el.innerHTML = `<div class="empty small">Seleziona il tuo avversario di corsia per vedere i campioni migliori contro di lui.<br><span class="dim">In champion select i ruoli nemici non sono visibili: sceglilo dall'elenco o con "Scegli avversario".</span></div>`; return; }
-  el.innerHTML = `<div class="loading"><span class="spinner"></span></div>`;
+  if(u.skind==='matchup' && !u.sopp){ put(el, `<div class="empty small">Seleziona il tuo avversario di corsia per vedere i campioni migliori contro di lui.<br><span class="dim">In champion select i ruoli nemici non sono visibili: sceglilo dall'elenco o con "Scegli avversario".</span></div>`, soft); return; }
+  if(!soft) el.innerHTML = `<div class="loading"><span class="spinner"></span></div>`;
   let list = [];
   try{ list = await api('/api/suggest', {mode:s.mode, tier:'auto', position:s.myPos, kind:u.skind, allies, enemies, opponent:u.sopp||0, exclude:bans}); }catch(e){}
   if(!$('#sugg')) return;
-  if(!list?.length){ el.innerHTML = `<div class="empty small">${S.st?.engine?.total? 'Non ci sono ancora abbastanza partite per questo filtro.' : 'I suggerimenti si basano sul motore statistiche: aggiungi la chiave Riot API nelle impostazioni.'}</div>`; return; }
-  el.innerHTML = `<div class="sugg">${list.map(x=>`<div class="sg" data-act="openchamp" data-id="${champ(x.champion).id}">${ci(x.champion)}<div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny muted">${esc(x.detail)}</div></div>
-    <span class="sc ${x.score>=.5?'good':'bad'}">${pct(x.score,1)}</span></div>`).join('')}</div>`;
+  if(!list?.length){ put(el, `<div class="empty small">${S.st?.engine?.total? 'Non ci sono ancora abbastanza partite per questo filtro.' : 'I suggerimenti si basano sul motore statistiche: aggiungi la chiave Riot API nelle impostazioni.'}</div>`, soft); return; }
+  put(el, `<div class="sugg">${list.map(x=>`<div class="sg" data-act="openchamp" data-id="${champ(x.champion).id}">${ci(x.champion)}<div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny muted">${esc(x.detail)}</div></div>
+    <span class="sc ${x.score>=.5?'good':'bad'}">${pct(x.score,1)}</span></div>`).join('')}</div>`, soft);
 }
-async function loadSelBuild(s){
+async function loadSelBuild(s, soft){
   const el = $('#selbuild'); if(!el) return;
-  if(!s.myChamp){ el.innerHTML = `<div class="empty small">Quando scegli (o passi sopra a) un campione, qui compare la build con rune, incantesimi e oggetti pronti da importare.</div>${autoBox()}`; return; }
-  el.innerHTML = `<div class="loading"><span class="spinner"></span></div>`;
-  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=auto&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ el.innerHTML = esc(e.message); return; }
+  if(!s.myChamp){ put(el, `<div class="empty small">Quando scegli (o passi sopra a) un campione, qui compare la build con rune, incantesimi e oggetti pronti da importare.</div>${autoBox()}`, soft); return; }
+  if(!soft){ el.innerHTML = `<div class="loading"><span class="spinner"></span></div>`; S.ui.selVariant = 0; }
+  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=auto&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ if(!soft) el.innerHTML = esc(e.message); return; }
   if(!$('#selbuild')) return;
-  const b = d.build; S.ui.selBuild = {champ:s.myChamp, pos:b.position||s.myPos, mode:s.mode};
-  el.innerHTML = `<div class="row mb">${ci(s.myChamp,'l')}<div class="sp"><h2>${esc(champ(s.myChamp).name)}</h2><div class="small muted">${b.games?`${pct(b.winRate)} WR · ${num(b.games)} partite · ${POS[b.position]||modeName(s.mode)}`:'Build personale / consigliata da Riot'}</div></div>
+  const b = d.build; S.ui.selBuild = {champ:s.myChamp, pos:b.position||s.myPos, mode:s.mode}; S.ui.selData = b;
+  if((S.ui.selVariant||0) >= (b.variants||[]).length) S.ui.selVariant = 0;
+  put(el, `<div class="row mb">${ci(s.myChamp,'l')}<div class="sp"><h2>${esc(champ(s.myChamp).name)}</h2><div class="small muted">${b.games?`${pct(b.winRate)} WR · ${num(b.games)} partite · ${POS[b.position]||modeName(s.mode)}`:'Build personale / consigliata da Riot'}</div></div>
       <button class="btn" data-act="selimport" ${S.st?.client?.connected?'':'disabled'}>Importa tutto</button></div>
-    ${runesHTML(b.runes)}<div class="mt">${buildHTML(b, null)}</div>${autoBox()}`;
+    ${runesHTML(b.runes)}<div class="mt" id="selitems">${buildHTML(b, null, S.ui.selVariant||0, 'selvariant')}</div>${autoBox()}`, soft);
 }
 function autoBox(){
   const s = S.settings;
@@ -478,12 +536,14 @@ function autoBox(){
 }
 
 /* ================= PATCH ================= */
-async function pagePatch(m, r, force){
+async function pagePatch(m, r, soft, force){
   const u = S.ui; u.pf = u.pf||'all'; u.pq = u.pq||'';
-  m.innerHTML = `<div class="page"><div id="phero"><div class="loading"><span class="spinner"></span>Carico le note della patch…</div></div><div id="pbody2"></div></div>`;
-  let d; try{ d = await api('/api/patch'+(force?'?force=1':'')); }catch(e){ d={error:e.message}; }
+  if(soft && !$('#phero')) soft = false;
+  if(!soft) m.innerHTML = `<div class="page"><div id="phero"><div class="loading"><span class="spinner"></span>Carico le note della patch…</div></div><div id="pbody2"></div></div>`;
+  let d; try{ d = await api('/api/patch'+(force?'?force=1':'')); }catch(e){ if(soft) return; d={error:e.message}; }
   if(route()[0]!=='patch') return;
   const rep = d.report;
+  if(soft){ if(!rep || (u.patch && rep.fetched===u.patch.fetched && rep.patch===u.patch.patch)) return; soft = false; }
   if(!rep){ $('#phero').innerHTML = `<div class="card"><div class="empty"><div class="big">📰</div>Note della patch non ancora disponibili.${d.error?`<div class="small dim mt">${esc(d.error)}</div>`:''}<div class="mt"><button class="btn" data-act="patchrefresh">Riprova</button></div></div></div>`; return; }
   u.patch = rep;
   const all = [...(rep.champions||[]),...(rep.items||[]),...(rep.other||[])];
@@ -499,6 +559,7 @@ async function pagePatch(m, r, force){
   $('#pq').addEventListener('input', e=>{ u.pq=e.target.value; drawPatch(); });
   drawPatch();
 }
+pagePatch.soft = true;
 function drawPatch(){
   const u = S.ui, rep = u.patch, el = $('#pbody2'); if(!el||!rep) return;
   const q = u.pq.trim().toLowerCase();
@@ -690,8 +751,10 @@ const actions = {
   ptab(t){ S.ui.ptab=t.dataset.k; document.querySelectorAll('#ptabs button').forEach(b=>b.classList.toggle('on',b===t)); $('#ptab').innerHTML=profileTab(S.ui.prof); },
   analyze(t){
     const i=+t.dataset.i, el=$('#an'+i), g=S.ui.prof.matches[i];
-    if(el.style.display!=='none'){ el.style.display='none'; return; }
-    el.innerHTML = (g.analysis||[]).map(a=>`<div class="ins ${a.kind}"><span class="i">${a.kind==='good'?'✓':a.kind==='bad'?'!':'i'}</span><span>${esc(a.text)}</span></div>`).join('');
+    S.ui.openAn = S.ui.openAn || {};
+    if(el.style.display!=='none'){ el.style.display='none'; delete S.ui.openAn[g.id]; return; }
+    S.ui.openAn[g.id] = true;
+    el.innerHTML = analysisHTML(g);
     el.style.display='block';
   },
   coach(){ modal('✦ Coach AI', `<div class="feat"><div class="fi">🧠</div><div><p>Il Coach AI fa parte di <b class="goldc">BetterStomp Premium</b>, in arrivo a breve.</p>
@@ -703,9 +766,12 @@ const actions = {
   chpos(t){ S.ui.chPos=t.dataset.p; render(); },
   tpos(t){ S.ui.tpos=t.dataset.p; render(); },
   tsort(t){ const k=t.dataset.k; if(S.ui.tsort===k) S.ui.tdir=-(S.ui.tdir||-1); else { S.ui.tsort=k; S.ui.tdir=k==='name'?1:-1; } drawTier(); },
-  async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:true,spells:true,items:true}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
-  async selimport(){ const b=S.ui.selBuild; if(!b) return; try{ const r=await api('/api/import',{champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
-  editbuild(){ S.ui.editing=!S.ui.editing; S.ui.edit=null; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.hasPersonal?S.ui.chData.personal:null); },
+  async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:true,spells:true,items:true,variant:S.ui.variant||0}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
+  async selimport(){ const b=S.ui.selBuild; if(!b) return; try{ const r=await api('/api/import',{champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true,variant:S.ui.selVariant||0}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
+  variant(t){ S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
+  selvariant(t){ S.ui.selVariant=+t.dataset.i; const b=S.ui.selData; if(b) $('#selitems').innerHTML=buildHTML(b, null, S.ui.selVariant, 'selvariant'); },
+  editbuild(){ S.ui.editing=!S.ui.editing; S.ui.edit=null; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.hasPersonal?S.ui.chData.personal:null, S.ui.variant, 'variant');
+    document.querySelector('[data-act=editbuild]').textContent = S.ui.editing?'Chiudi editor':'Modifica build personale'; },
   pickitem(t,e){ if(e.target.closest('.x')) return; itemPicker(id=>{ const b=t.dataset.b, i=+t.dataset.i; const arr=S.ui.edit[b]; arr[i]=id; S.ui.edit[b]=arr.map(x=>x||0); refreshEditor(); }); },
   clearitem(t){ const b=t.dataset.b, i=+t.dataset.i; S.ui.edit[b].splice(i,1); refreshEditor(); },
   async savebuild(){ const e=S.ui.edit; const cur=S.ui.chData.hasPersonal?S.ui.chData.personal:{};
@@ -717,7 +783,7 @@ const actions = {
   override(t){ champPicker(k=>{ S.ui.over[t.dataset.k]=k; S.ui.ssig=''; S.ui.sbuildKey=''; updateSelect(true); }); },
   pickopp(){ champPicker(k=>{ S.ui.sopp=k; S.ui.soppManual=true; S.ui.ssig=''; updateSelect(true); }); },
   pf(t){ S.ui.pf=t.dataset.k; document.querySelectorAll('[data-act=pf]').forEach(c=>c.classList.toggle('on',c===t)); drawPatch(); },
-  patchrefresh(){ pagePatch($('#main'), route(), true); },
+  patchrefresh(){ pagePatch($('#main'), route(), false, true); },
   async resetoverlay(){ S.settings = await api('/api/settings/reset-overlay'); render(); toast('Overlay ripristinato'); },
   copyobs(){ navigator.clipboard.writeText($('#obsurl').value).then(()=>toast('Indirizzo copiato')); },
   theme(t){ setSetting('theme', t.dataset.k); document.querySelectorAll('[data-act=theme]').forEach(b=>b.classList.toggle('on',b===t)); },
@@ -725,7 +791,7 @@ const actions = {
   showkey(){ const i=$('#apikey'); i.type = i.type==='password'?'text':'password'; },
   savekey(){ setSetting('riotApiKey', $('#apikey').value.trim()); toast('Chiave salvata: il motore statistiche parte in pochi secondi'); },
 };
-function refreshEditor(){ $('#buildbox').innerHTML = buildHTML(S.ui.chData.build, S.ui.chData.personal); }
+function refreshEditor(){ $('#buildbox').innerHTML = buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); }
 
 document.addEventListener('click', e=>{
   const t = e.target.closest('[data-act]'); if(!t) return;

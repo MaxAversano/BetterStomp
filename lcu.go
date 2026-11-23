@@ -386,6 +386,11 @@ func lcuLoop() {
 			}
 			stateMu.Unlock()
 			if phase == "EndOfGame" || phase == "Lobby" {
+				if phase == "EndOfGame" {
+					profMu.Lock()
+					delete(profCache, "me") // la partita appena finita compare subito nel profilo
+					profMu.Unlock()
+				}
 				lastImported = ""
 				stateMu.Lock()
 				clientState.Imported = ""
@@ -446,7 +451,7 @@ func maybeAutoImport(cs *ChampSelect) {
 		return
 	}
 	mode := queueGroup(getClientState().QueueID, "")
-	res := importBuild(cs.MyChampion, lcuPosToRiot(cs.MyPosition), mode, s.AutoRunes, s.AutoSpells, s.AutoItems)
+	res := importBuild(cs.MyChampion, lcuPosToRiot(cs.MyPosition), mode, s.AutoRunes, s.AutoSpells, s.AutoItems, 0)
 	stateMu.Lock()
 	clientState.Imported = res
 	stateMu.Unlock()
@@ -454,11 +459,11 @@ func maybeAutoImport(cs *ChampSelect) {
 
 // ---------- Import di rune, incantesimi e set di oggetti ----------
 
-func importBuild(champ int, pos, mode string, runes, spells, items bool) string {
+func importBuild(champ int, pos, mode string, runes, spells, items bool, variant int) string {
 	if !lcu.isConnected() {
 		return "Client di League non connesso"
 	}
-	b := resolveBuild(champ, pos, mode, "", true)
+	b := resolveBuild(champ, pos, mode, "", true, variant)
 	var done []string
 	var errs []string
 	if runes {

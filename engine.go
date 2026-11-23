@@ -74,6 +74,7 @@ type ChampAgg struct {
 	Runes  map[string]*Stat `json:"runes"`
 	Spells map[string]*Stat `json:"spells"`
 	Skills map[string]*Stat `json:"skills"`
+	Builds map[string]*Stat `json:"builds"` // varianti: "stivali:ogg1,ogg2,ogg3"
 	Lane   map[int]*Stat    `json:"lane"`
 	Vs     map[int]*Stat    `json:"vs"`
 	With   map[int]*Stat    `json:"with"`
@@ -86,7 +87,42 @@ type ChampAgg struct {
 
 func newAgg() *ChampAgg {
 	return &ChampAgg{Items: map[int]*Stat{}, Boots: map[int]*Stat{}, Start: map[string]*Stat{}, Runes: map[string]*Stat{},
-		Spells: map[string]*Stat{}, Skills: map[string]*Stat{}, Lane: map[int]*Stat{}, Vs: map[int]*Stat{}, With: map[int]*Stat{}}
+		Spells: map[string]*Stat{}, Skills: map[string]*Stat{}, Builds: map[string]*Stat{}, Lane: map[int]*Stat{}, Vs: map[int]*Stat{}, With: map[int]*Stat{}}
+}
+
+// file salvati da versioni precedenti possono non avere alcune mappe
+func fixAgg(a *ChampAgg) {
+	n := newAgg()
+	if a.Items == nil {
+		a.Items = n.Items
+	}
+	if a.Boots == nil {
+		a.Boots = n.Boots
+	}
+	if a.Start == nil {
+		a.Start = n.Start
+	}
+	if a.Runes == nil {
+		a.Runes = n.Runes
+	}
+	if a.Spells == nil {
+		a.Spells = n.Spells
+	}
+	if a.Skills == nil {
+		a.Skills = n.Skills
+	}
+	if a.Builds == nil {
+		a.Builds = n.Builds
+	}
+	if a.Lane == nil {
+		a.Lane = n.Lane
+	}
+	if a.Vs == nil {
+		a.Vs = n.Vs
+	}
+	if a.With == nil {
+		a.With = n.With
+	}
 }
 
 func addI(m map[int]*Stat, k int, win bool) {
@@ -134,6 +170,7 @@ func (a *ChampAgg) merge(o *ChampAgg) {
 	mergeS(a.Runes, o.Runes)
 	mergeS(a.Spells, o.Spells)
 	mergeS(a.Skills, o.Skills)
+	mergeS(a.Builds, o.Builds)
 	mergeI(a.Lane, o.Lane)
 	mergeI(a.Vs, o.Vs)
 	mergeI(a.With, o.With)
@@ -200,6 +237,14 @@ func (e *Engine) loadPatch(p string) *DB {
 	if readJSON(filepath.Join(statsDir(), "stats_"+p+".json"), &db) == nil && db.Buckets != nil {
 		if db.Seen == nil {
 			db.Seen = map[string]bool{}
+		}
+		for _, b := range db.Buckets {
+			if b.Bans == nil {
+				b.Bans = map[int]int{}
+			}
+			for _, a := range b.Champs {
+				fixAgg(a)
+			}
 		}
 		return &db
 	}
@@ -426,6 +471,7 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 	// dati della timeline: oggetti iniziali e ordine abilità
 	starts := map[int][]int{}
 	skills := map[int][]int{}
+	order := map[int][]int{}
 	if tl != nil {
 		for _, f := range tl.Info.Frames {
 			for _, ev := range f.Events {
@@ -433,6 +479,9 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 				case "ITEM_PURCHASED":
 					if ev.Timestamp < 65000 && ev.ItemID != 3340 && ev.ItemID != 3364 && ev.ItemID != 3363 {
 						starts[ev.ParticipantID] = append(starts[ev.ParticipantID], ev.ItemID)
+					}
+					if isCompleted(ev.ItemID) {
+						order[ev.ParticipantID] = append(order[ev.ParticipantID], ev.ItemID)
 					}
 				case "SKILL_LEVEL_UP":
 					if ev.LevelUpType == "NORMAL" || ev.LevelUpType == "" {
@@ -456,12 +505,32 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 		a.A += int64(p.Assists)
 		a.CS += int64(p.Minions + p.Neutral)
 		a.Dur += int64(m.Info.Duration)
+		boots := 0
+		var final []int
 		for _, it := range p.items() {
 			if isBoots(it) {
 				addI(a.Boots, it, p.Win)
+				boots = it
 			} else if isCompleted(it) {
 				addI(a.Items, it, p.Win)
+				final = append(final, it)
 			}
+		}
+		// variante di build: primi 3 oggetti completati (ordine d'acquisto dalla timeline,
+		// altrimenti l'ordine degli slot, che segue quasi sempre quello d'acquisto)
+		path := final
+		if seq := order[i+1]; len(seq) >= 3 {
+			path = nil
+			seen := map[int]bool{}
+			for _, it := range seq {
+				if !seen[it] {
+					seen[it] = true
+					path = append(path, it)
+				}
+			}
+		}
+		if len(path) >= 3 {
+			addS(a.Builds, fmt.Sprintf("%d:%d,%d,%d", boots, path[0], path[1], path[2]), p.Win)
 		}
 		if rk := runeKey(p); rk != "" {
 			addS(a.Runes, rk, p.Win)
@@ -712,6 +781,17 @@ type PosShare struct {
 	Share    float64 `json:"share"`
 }
 
+type BuildVariant struct {
+	Label       string  `json:"label"`
+	Path        []int   `json:"path"`
+	Boots       int     `json:"boots"`
+	Games       int     `json:"games"`
+	WinRate     float64 `json:"winRate"`
+	Share       float64 `json:"share"`
+	Core        []int   `json:"core"`
+	Situational []int   `json:"situational"`
+}
+
 type BuildResult struct {
 	Champion    int             `json:"champion"`
 	Position    string          `json:"position"`
@@ -740,6 +820,8 @@ type BuildResult struct {
 	Best        []Pair          `json:"best"`
 	Worst       []Pair          `json:"worst"`
 	Synergy     []Pair          `json:"synergy"`
+	Variants    []BuildVariant  `json:"variants"`
+	Variant     int             `json:"variant"`
 	Source      string          `json:"source"`
 	Personal    bool            `json:"personal"`
 	Widened     bool            `json:"widened"`
@@ -898,6 +980,89 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	}
 	if len(boots) > 1 && len(r.Situational) < 10 {
 		r.Situational = append(r.Situational, boots[1])
+	}
+	// 3-4 build alternative con il loro win rate
+	var bk []kv
+	tot := 0
+	for k, v := range a.Builds {
+		bk = append(bk, kv{k, v})
+		tot += v.N
+	}
+	sort.Slice(bk, func(i, j int) bool { return bk[i].s.N > bk[j].s.N })
+	minB := int(math.Max(2, float64(tot)*0.03))
+	usedLead := map[int]bool{}
+	for _, x := range bk {
+		if len(r.Variants) >= 4 || x.s.N < minB {
+			break
+		}
+		parts := strings.SplitN(x.k, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		bt, _ := strconv.Atoi(parts[0])
+		var path []int
+		for _, y := range strings.Split(parts[1], ",") {
+			v, _ := strconv.Atoi(y)
+			path = append(path, v)
+		}
+		// varianti davvero diverse: oggetto iniziale diverso o almeno due oggetti diversi
+		dup := false
+		for _, ov := range r.Variants {
+			same := 0
+			for _, a1 := range ov.Path {
+				for _, b1 := range path {
+					if a1 == b1 {
+						same++
+					}
+				}
+			}
+			if same >= 2 && ov.Path[0] == path[0] {
+				dup = true
+			}
+		}
+		if dup {
+			continue
+		}
+		v := BuildVariant{Path: path, Boots: bt, Games: x.s.N, WinRate: float64(x.s.W) / float64(x.s.N), Share: float64(x.s.N) / float64(tot)}
+		if it, ok := itemInfo(path[0]); ok {
+			v.Label = it.Name
+		}
+		if usedLead[path[0]] && len(path) > 1 {
+			if it, ok := itemInfo(path[1]); ok {
+				v.Label += " + " + it.Name
+			}
+		}
+		usedLead[path[0]] = true
+		in := map[int]bool{}
+		if bt > 0 {
+			v.Core = append(v.Core, bt)
+			in[bt] = true
+		}
+		for _, id := range path {
+			v.Core = append(v.Core, id)
+			in[id] = true
+		}
+		for _, id := range items {
+			if in[id] {
+				continue
+			}
+			if len(v.Core) < 10 {
+				v.Core = append(v.Core, id)
+			} else if len(v.Situational) < 9 {
+				v.Situational = append(v.Situational, id)
+			}
+			in[id] = true
+		}
+		for _, id := range boots {
+			if !in[id] && len(v.Situational) < 10 {
+				v.Situational = append(v.Situational, id)
+				break
+			}
+		}
+		r.Variants = append(r.Variants, v)
+	}
+	if len(r.Variants) > 0 {
+		r.Core, r.Situational = r.Variants[0].Core, r.Variants[0].Situational
 	}
 	if k, s := topS(a.Skills, 1); s != nil {
 		parts := strings.SplitN(k, "|", 2)

@@ -102,7 +102,7 @@ func setupAPI(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/champion", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		b := resolveBuild(atoi(q.Get("id")), q.Get("pos"), q.Get("mode"), q.Get("tier"), q.Get("personal") != "0")
+		b := resolveBuild(atoi(q.Get("id")), q.Get("pos"), q.Get("mode"), q.Get("tier"), q.Get("personal") != "0", atoi(q.Get("variant")))
 		pb, has := getPersonal(atoi(q.Get("id")))
 		jsonOut(w, map[string]any{"build": b, "personal": pb, "hasPersonal": has})
 	})
@@ -132,15 +132,16 @@ func setupAPI(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/import", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
-			Champ  int    `json:"champ"`
-			Pos    string `json:"pos"`
-			Mode   string `json:"mode"`
-			Runes  bool   `json:"runes"`
-			Spells bool   `json:"spells"`
-			Items  bool   `json:"items"`
+			Champ   int    `json:"champ"`
+			Pos     string `json:"pos"`
+			Mode    string `json:"mode"`
+			Runes   bool   `json:"runes"`
+			Spells  bool   `json:"spells"`
+			Items   bool   `json:"items"`
+			Variant int    `json:"variant"`
 		}
 		json.NewDecoder(r.Body).Decode(&q)
-		msg := importBuild(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items)
+		msg := importBuild(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items, q.Variant)
 		jsonOut(w, map[string]string{"message": msg})
 	})
 
