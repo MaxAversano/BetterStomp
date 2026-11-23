@@ -89,7 +89,6 @@ func main() {
 		if d, _ := live.snapshot(); d != nil || getClientState().Phase == "InProgress" {
 			continue
 		}
-		engine.save()
-		os.Exit(0)
+		appExit()
 	}
 }

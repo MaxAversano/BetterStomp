@@ -385,6 +385,7 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 func startOverlay() {
 	runtime.LockOSThread()
 	hinst, _, _ := pGetModuleHandle.Call(0)
+	startTray(hinst)
 	cls, _ := syscall.UTF16PtrFromString("BetterStompOverlay")
 	title, _ := syscall.UTF16PtrFromString("BetterStomp Overlay")
 	wc := wndClassEx{lpfnWndProc: syscall.NewCallback(wndProc), hInstance: hinst, lpszClassName: cls}
@@ -396,7 +397,16 @@ func startOverlay() {
 		uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(title)), wsPopup,
 		0, 0, uintptr(ovW), uintptr(ovH), 0, 0, hinst, 0)
 	if ovHwnd == 0 {
-		return
+		// senza overlay resta comunque attivo il ciclo per l'icona nell'area di notifica
+		var m msgT
+		for {
+			r, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+			if int32(r) <= 0 {
+				return
+			}
+			pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+			pDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
+		}
 	}
 	pSetLayeredAttr.Call(ovHwnd, keyColor, 0, lwaColorKey)
 
