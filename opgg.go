@@ -391,12 +391,26 @@ func (o *opggClient) ensureChamps() error {
 	o.mu.Lock()
 	o.ids, o.keys = map[string]int{}, map[int]string{}
 	for _, c := range list {
+		// OP.GG elenca anche copie speciali dei campioni (id 60000+, modalità a tempo): vanno ignorate
+		if c.ID <= 0 || c.ID >= 10000 || !knownChamp(c.ID) {
+			continue
+		}
 		o.keys[c.ID] = strings.ToUpper(normName(c.Key))
 		o.ids[normName(c.Key)] = c.ID
 		o.ids[normName(c.Name)] = c.ID
 	}
 	o.mu.Unlock()
 	return nil
+}
+
+func knownChamp(id int) bool {
+	static.mu.RLock()
+	defer static.mu.RUnlock()
+	if len(static.Champs) == 0 {
+		return id < 10000
+	}
+	_, ok := static.Champs[id]
+	return ok
 }
 
 func (o *opggClient) champID(name string) int {
@@ -435,7 +449,7 @@ func (o *opggClient) laneMeta() ([]opggMetaRow, error) {
 		return m, nil
 	}
 	o.mu.Unlock()
-	path := filepath.Join(opggDir(), "meta.json")
+	path := filepath.Join(opggDir(), "meta_v2.json")
 	var disk struct {
 		At   time.Time     `json:"at"`
 		Rows []opggMetaRow `json:"rows"`
@@ -529,7 +543,7 @@ func metaToRows(meta []opggMetaRow, pos string) ([]TierRow, int) {
 	var rows []TierRow
 	tot := 0
 	for _, r := range meta {
-		if pos != "" && pos != "ALL" && r.Pos != pos {
+		if (pos != "" && pos != "ALL" && r.Pos != pos) || !knownChamp(r.Champion) {
 			continue
 		}
 		tot += r.Play
@@ -601,7 +615,7 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 	j := o.jobs[ot]
 	if j == nil {
 		j = &opggTierJob{Tier: ot}
-		readJSON(filepath.Join(opggDir(), "tier_"+ot+".json"), j)
+		readJSON(filepath.Join(opggDir(), "tier2_"+ot+".json"), j)
 		o.jobs[ot] = j
 	}
 	stale := len(j.Rows) == 0 || time.Since(j.At) > 12*time.Hour
@@ -688,7 +702,7 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 		}
 	}
 	j.Rows, j.At = out, time.Now()
-	writeJSON(filepath.Join(opggDir(), "tier_"+j.Tier+".json"), j)
+	writeJSON(filepath.Join(opggDir(), "tier2_"+j.Tier+".json"), j)
 }
 
 // ---------- build del campione ----------
