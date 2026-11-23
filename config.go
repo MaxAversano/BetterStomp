@@ -29,9 +29,10 @@ type Timers struct {
 }
 
 type Widget struct {
-	On bool    `json:"on"`
-	X  float64 `json:"x"` // 0..1 frazione dello schermo
-	Y  float64 `json:"y"`
+	On     bool    `json:"on"`
+	X      float64 `json:"x"` // 0..1 frazione dello schermo
+	Y      float64 `json:"y"`
+	Locked bool    `json:"locked"` // lucchetto: non si sposta tenendo TAB
 }
 
 type OverlaySettings struct {
@@ -51,11 +52,12 @@ type OverlaySettings struct {
 	Timers        Timers  `json:"timers"`
 	Compact       bool    `json:"compact"`     // versione riassunta su una riga
 	ShowKP        bool    `json:"showKP"`      // partecipazione alle uccisioni
-	CSGoal        string  `json:"csGoal"`      // off | elo | custom
-	CSGoalValue   float64 `json:"csGoalValue"` // CS/min se custom
+	CSGoal        string  `json:"csGoal"`      // elo di riferimento: on (elo) | off
+	CSGoalValue   float64 `json:"csGoalValue"` // obiettivo fisso in CS/min (0 = nessuno)
 	CSGoalTier    string  `json:"csGoalTier"`  // elo di riferimento se elo
 	PillScale     float64 `json:"pillScale"`   // dimensione timer minimappa
-	EditMode      bool    `json:"editMode"`    // trascina gli elementi direttamente in gioco
+	EditMode      bool    `json:"editMode"`    // trascina gli elementi direttamente sullo schermo
+	Layout        int     `json:"layout"`      // versione del layout predefinito
 }
 
 type ProPlayer struct {
@@ -101,14 +103,14 @@ func defaultSettings() Settings {
 		FlashKey: "F", DefaultMode: "ranked", DefaultTier: "auto", EngineEnabled: true, Animations: true,
 		Overlay: OverlaySettings{
 			Enabled: true, Scale: 1,
-			CS:         Widget{true, 0.012, 0.30},
-			Objectives: Widget{true, 0.012, 0.38},
-			ShowKP:     true, CSGoal: "elo", CSGoalValue: 7.5, CSGoalTier: "MASTER", PillScale: 0.7,
-			Camps:    Widget{true, 0.012, 0.55},
-			Buffs:    Widget{true, 0.40, 0.10},
-			Deaths:   Widget{true, 0.012, 0.78},
-			ItemDiff: Widget{true, 0.39, 0.16},
-			Loading:  Widget{true, 0.5, 0.24},
+			CS:         Widget{On: true, X: 0.9165, Y: 0.125},
+			Objectives: Widget{On: true, X: 0.9165, Y: 0.27},
+			ShowKP:     true, CSGoal: "elo", CSGoalValue: 0, CSGoalTier: "MASTER", PillScale: 0.8,
+			Camps:    Widget{On: false, X: 0.9165, Y: 0.40},
+			Buffs:    Widget{On: true, X: 0.5, Y: 0.12},
+			Deaths:   Widget{On: true, X: 0.012, Y: 0.40},
+			ItemDiff: Widget{On: true, X: 0.5, Y: 0.19},
+			Loading:  Widget{On: true, X: 0.5, Y: 0.28},
 			Minimap:  true, MinimapSize: 280, MinimapRight: 6, MinimapBottom: 6,
 			Timers: Timers{
 				DragonFirst: 300, DragonRespawn: 300, ElderRespawn: 360,
@@ -162,6 +164,13 @@ func loadSettings() {
 		s.Overlay.CSGoal, s.Overlay.CSGoalValue, s.Overlay.CSGoalTier, s.Overlay.ShowKP = "elo", 7.5, "MASTER", true
 	}
 	s.Overlay.EditMode = false
+	if s.Overlay.Layout < 2 {
+		// nuovo overlay in stile Blitz: riparto dalle posizioni predefinite
+		d := defaultSettings().Overlay
+		d.Enabled, d.Timers, d.MinimapSize, d.MinimapRight, d.MinimapBottom, d.Minimap = s.Overlay.Enabled, s.Overlay.Timers, s.Overlay.MinimapSize, s.Overlay.MinimapRight, s.Overlay.MinimapBottom, s.Overlay.Minimap
+		d.Layout = 2
+		s.Overlay = d
+	}
 	settingsMu.Lock()
 	settings = s
 	settingsMu.Unlock()

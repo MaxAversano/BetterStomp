@@ -38,18 +38,20 @@ type LivePlayer struct {
 }
 
 type LiveEvent struct {
-	EventID    int     `json:"EventID"`
-	EventName  string  `json:"EventName"`
-	EventTime  float64 `json:"EventTime"`
-	KillerName string  `json:"KillerName"`
-	DragonType string  `json:"DragonType"`
+	EventID     int     `json:"EventID"`
+	EventName   string  `json:"EventName"`
+	EventTime   float64 `json:"EventTime"`
+	KillerName  string  `json:"KillerName"`
+	InhibKilled string  `json:"InhibKilled"`
+	DragonType  string  `json:"DragonType"`
 }
 
 type LiveData struct {
 	ActivePlayer struct {
-		SummonerName string `json:"summonerName"`
-		RiotID       string `json:"riotId"`
-		RiotName     string `json:"riotIdGameName"`
+		CurrentGold  float64 `json:"currentGold"`
+		SummonerName string  `json:"summonerName"`
+		RiotID       string  `json:"riotId"`
+		RiotName     string  `json:"riotIdGameName"`
 	} `json:"activePlayer"`
 	AllPlayers []LivePlayer `json:"allPlayers"`
 	Events     struct {
@@ -82,7 +84,10 @@ func liveLoop() {
 		phase := getClientState().Phase
 		interval := 3 * time.Second
 		if phase == "InProgress" || !lcu.isConnected() {
-			interval = time.Second
+			interval = 500 * time.Millisecond // in partita: due controlli al secondo
+		}
+		if d, _ := live.snapshot(); d != nil {
+			interval = 500 * time.Millisecond
 		}
 		resp, err := liveClient.Get("https://127.0.0.1:2999/liveclientdata/allgamedata")
 		if err == nil {
@@ -188,6 +193,7 @@ const mapSize = 14870.0
 type OLine struct {
 	Text  string `json:"text"`
 	Right string `json:"right,omitempty"`
+	Extra string `json:"extra,omitempty"` // valore di riferimento mostrato dopo " / "
 	Color string `json:"color"`
 	Bold  bool   `json:"bold,omitempty"`
 	Size  int    `json:"size,omitempty"`
@@ -208,6 +214,9 @@ type OWidget struct {
 	Tiles  []OTile `json:"tiles,omitempty"` // riquadri grandi (CS/min, partecipazione)
 	Segs   []OLine `json:"segs,omitempty"`  // versione riassunta su una riga
 	Dot    bool    `json:"dot,omitempty"`
+	Icons  bool    `json:"icons,omitempty"`    // lucchetto, impostazioni, chiudi
+	Locked bool    `json:"locked,omitempty"`   // bloccato con il lucchetto
+	Text   bool    `json:"textOnly,omitempty"` // solo testo con contorno (minimappa)
 }
 
 type OTile struct {
@@ -368,8 +377,11 @@ func buildOverlayModel(preview bool) OverlayModel {
 		lines = append(lines, timerLine("Barone", baronNext, colAccent))
 		objLines = lines
 	}
-	if (o.CS.On || o.Objectives.On) && me != nil {
-		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, objLines))
+	if o.CS.On && me != nil {
+		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, nil))
+	}
+	if len(objLines) > 0 {
+		m.Widgets = append(m.Widgets, OWidget{ID: "objectives", Key: "objectives", X: o.Objectives.X, Y: o.Objectives.Y, Title: "OBIETTIVI", Accent: colAccent, Width: 156, Lines: objLines, Icons: true, Locked: o.Objectives.Locked})
 	}
 
 	if preview && baronBuffEnd == 0 {
@@ -393,7 +405,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			lines = append(lines, OLine{Text: "Buff Drago Antico", Right: mmss(elderBuffEnd - gt), Color: c, Bold: true})
 		}
 		if len(lines) > 0 {
-			m.Widgets = append(m.Widgets, OWidget{ID: "buffs", Key: "buffs", X: o.Buffs.X, Y: o.Buffs.Y, Anchor: "center", Title: "BUFF IN SCADENZA", Accent: colGold, Width: 230, Lines: lines})
+			m.Widgets = append(m.Widgets, OWidget{ID: "buffs", Key: "buffs", Icons: true, Locked: o.Buffs.Locked, X: o.Buffs.X, Y: o.Buffs.Y, Anchor: "center", Title: "BUFF IN SCADENZA", Accent: colGold, Width: 230, Lines: lines})
 		}
 	}
 
@@ -434,7 +446,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			lines = append(lines, OLine{Text: "Lato nemico", Color: colBad, Bold: true})
 			lines = append(lines, enemy...)
 		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "camps", Key: "camps", X: o.Camps.X, Y: o.Camps.Y, Title: "GIUNGLA", Accent: colGood, Width: 190, Lines: lines})
+		m.Widgets = append(m.Widgets, OWidget{ID: "camps", Key: "camps", Icons: true, Locked: o.Camps.Locked, X: o.Camps.X, Y: o.Camps.Y, Title: "GIUNGLA", Accent: colGood, Width: 190, Lines: lines})
 	}
 
 	// timer sulla minimappa, direttamente sopra i campi
@@ -452,24 +464,30 @@ func buildOverlayModel(preview bool) OverlayModel {
 			}
 			x, y := place(mx, my)
 			c := col
-			if at-gt <= 30 {
-				c = colGold
-			}
-			m.Widgets = append(m.Widgets, OWidget{ID: id, X: x, Y: y, Pixel: true, Pill: true, Accent: c, Lines: []OLine{{Text: mmss(at - gt), Color: c, Bold: true, Size: 11}}})
+			m.Widgets = append(m.Widgets, OWidget{ID: id, X: x, Y: y, Pixel: true, Pill: true, Text: true, Accent: c, Lines: []OLine{{Text: mmssShort(at - gt), Color: c, Bold: true, Size: 11}}})
 		}
 		for _, c := range campDefs {
+			col := "#F5B947" // campi della giungla in arancione, come su Blitz
 			allyX, allyY := c.X, c.Y
 			enX, enY := mapSize-c.X, mapSize-c.Y
 			if myTeam == "CHAOS" {
 				allyX, allyY, enX, enY = enX, enY, allyX, allyY
 			}
-			addPill("mm-a-"+c.Key, allyX, allyY, campAt("ally", c), colText)
+			addPill("mm-a-"+c.Key, allyX, allyY, campAt("ally", c), col)
 			if v, ok := camps["enemy:"+c.Key]; ok {
-				addPill("mm-e-"+c.Key, enX, enY, v, colBad)
+				addPill("mm-e-"+c.Key, enX, enY, v, col)
 			}
 		}
-		addPill("mm-dragon", 9866, 4414, dragonNext, colCyan)
-		addPill("mm-baron", 5007, 10471, baronNext, colAccent)
+		addPill("mm-dragon", 9866, 4414, dragonNext, colText)
+		addPill("mm-baron", 5007, 10471, baronNext, colText)
+		// inibitori distrutti: tornano dopo 5 minuti
+		for _, ev := range d.Events.Events {
+			if ev.EventName == "InhibKilled" {
+				if pos, ok := inhibPos(ev.InhibKilled); ok {
+					addPill("mm-inhib-"+ev.InhibKilled, pos[0], pos[1], ev.EventTime+300, colText)
+				}
+			}
+		}
 	}
 
 	// ARAM: timer delle vite (reliquie salute, segnate con hotkey) e respawn dei giocatori
@@ -482,7 +500,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			}
 			lines = append(lines, timerLine(fmt.Sprintf("Vita %d", i), at, colGood))
 		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "relics", Key: "camps", X: o.Camps.X, Y: o.Camps.Y, Title: "VITE ARAM", Accent: colGood, Width: 170, Lines: lines})
+		m.Widgets = append(m.Widgets, OWidget{ID: "relics", Key: "camps", Icons: true, Locked: o.Camps.Locked, X: o.Camps.X, Y: o.Camps.Y, Title: "VITE ARAM", Accent: colGood, Width: 170, Lines: lines})
 	}
 	if o.Deaths.On {
 		var lines []OLine
@@ -496,7 +514,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 			}
 		}
 		if len(lines) > 0 {
-			m.Widgets = append(m.Widgets, OWidget{ID: "deaths", Key: "deaths", X: o.Deaths.X, Y: o.Deaths.Y, Title: "RESPAWN", Accent: colBad, Width: 170, Lines: lines})
+			m.Widgets = append(m.Widgets, OWidget{ID: "deaths", Key: "deaths", Icons: true, Locked: o.Deaths.Locked, X: o.Deaths.X, Y: o.Deaths.Y, Title: "RESPAWN", Accent: colBad, Width: 170, Lines: lines})
 		}
 	}
 
@@ -529,7 +547,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 		if me != nil && opp != nil {
 			lines = append(lines, diffLine("vs "+opp.ChampionName, val(*me)-val(*opp)))
 		}
-		m.Widgets = append(m.Widgets, OWidget{ID: "itemdiff", Key: "itemDiff", X: o.ItemDiff.X, Y: o.ItemDiff.Y, Anchor: "center", Title: "VALORE OGGETTI", Accent: colGold, Width: 220, Lines: lines})
+		m.Widgets = append(m.Widgets, OWidget{ID: "itemdiff", Key: "itemDiff", Icons: true, Locked: o.ItemDiff.Locked, X: o.ItemDiff.X, Y: o.ItemDiff.Y, Anchor: "center", Title: "VALORE OGGETTI", Accent: colGold, Width: 220, Lines: lines})
 	}
 
 	if preview && o.Loading.On && len(getClientState().Lobby) == 0 {
@@ -615,7 +633,7 @@ func loadingWidget(lobby []LobbyPlayer, o OverlaySettings) OWidget {
 			lines = append(lines, OLine{Text: name, Right: rankShort(p.Tier, p.Division) + wr, Color: colText})
 		}
 	}
-	return OWidget{ID: "loading", Key: "loading", X: o.Loading.X, Y: o.Loading.Y, Anchor: "center", Title: "STATISTICHE SQUADRE  ·  Ctrl+T", Accent: colAccent, Width: 520, Lines: lines}
+	return OWidget{ID: "loading", Key: "loading", Icons: true, Locked: o.Loading.Locked, X: o.Loading.X, Y: o.Loading.Y, Anchor: "center", Title: "STATISTICHE SQUADRE  ·  Ctrl+T", Accent: colAccent, Width: 520, Lines: lines}
 }
 
 func demoLive() *LiveData {
@@ -653,92 +671,154 @@ func demoLive() *LiveData {
 var (
 	benchMu  sync.Mutex
 	benchKey string
-	benchVal float64
-	benchOK  bool
+	benchVal Bench
 	benchAt  time.Time
 )
 
-func csTarget(o OverlaySettings, me *LivePlayer) (float64, string) {
-	switch o.CSGoal {
-	case "custom":
-		return o.CSGoalValue, "obiettivo"
-	case "elo":
-		tier := o.CSGoalTier
-		if tier == "" || tier == "auto" {
-			tier = strings.TrimSuffix(autoTier(), "+")
-		}
-		key := me.ChampionName + "|" + me.Position + "|" + tier
-		benchMu.Lock()
-		defer benchMu.Unlock()
-		if key != benchKey || time.Since(benchAt) > time.Minute {
-			benchVal, benchOK = engine.CSBenchmark(champByName(me.ChampionName), me.Position, tier)
-			benchKey, benchAt = key, time.Now()
-		}
-		name := tierIT[tier]
-		if name == "" {
-			name = "media"
-		}
-		if !benchOK {
-			name += "*"
-		}
-		return benchVal, name
+func benchFor(o OverlaySettings, me *LivePlayer) (Bench, string) {
+	tier := o.CSGoalTier
+	if tier == "" || tier == "auto" {
+		tier = strings.TrimSuffix(autoTier(), "+")
 	}
-	return 0, ""
+	key := me.ChampionName + "|" + me.Position + "|" + tier
+	benchMu.Lock()
+	defer benchMu.Unlock()
+	if key != benchKey || time.Since(benchAt) > time.Minute {
+		benchVal = engine.Benchmarks(champByName(me.ChampionName), me.Position, tier)
+		benchKey, benchAt = key, time.Now()
+	}
+	return benchVal, tier
 }
 
-func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj []OLine) OWidget {
-	w := OWidget{ID: "main", Key: "cs", X: o.CS.X, Y: o.CS.Y, Title: "BETTER STOMP", Accent: colCyan, Width: 250, Dot: true}
-	csmin := 0.0
-	if gt > 60 {
-		csmin = float64(me.Scores.CreepScore) / (gt / 60)
+// livello atteso al minuto t (curva tipica di un giocatore di corsia)
+func expectedLevel(mins float64) float64 {
+	l := 1 + 0.78*mins
+	if mins > 10 {
+		l = 8.8 + 0.45*(mins-10)
 	}
-	teamK := 0
+	if l > 18 {
+		l = 18
+	}
+	return l
+}
+
+func fmt1(v float64) string {
+	if v >= 100 {
+		return fmt.Sprintf("%.0f", v)
+	}
+	s := fmt.Sprintf("%.1f", v)
+	return strings.TrimSuffix(s, ".0")
+}
+
+func cmpCol(you, ref float64) string {
+	if ref <= 0 {
+		return colText
+	}
+	switch {
+	case you >= ref:
+		return colGood
+	case you >= ref*0.85:
+		return colText
+	}
+	return colBad
+}
+
+// riquadro "benchmark" in stile Blitz: il tuo valore / la media dell'elo scelto
+func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj []OLine) OWidget {
+	w := OWidget{ID: "main", Key: "cs", X: o.CS.X, Y: o.CS.Y, Title: "BETTERSTOMP", Accent: colCyan, Width: 156, Icons: true, Locked: o.CS.Locked}
+	mins := gt / 60
+	if mins < 0.01 {
+		mins = 0.01
+	}
+	teamK, gold := 0, 0
 	for _, p := range d.AllPlayers {
 		if p.Team == me.Team {
 			teamK += p.Scores.Kills
 		}
 	}
-	kp := 0
-	if teamK > 0 {
-		kp = (me.Scores.Kills + me.Scores.Assists) * 100 / teamK
-	}
-	target, tname := csTarget(o, me)
-	csCol, sub := colText, ""
-	if target > 0 && gt > 90 {
-		switch {
-		case csmin >= target:
-			csCol = colGood
-		case csmin >= target*0.9:
-			csCol = colGold
-		default:
-			csCol = colBad
+	for _, it := range me.Items {
+		if info, ok := itemInfo(it.ItemID); ok {
+			gold += info.Gold.Total * maxI(1, it.Count)
 		}
-		sub = fmt.Sprintf("%s: %.1f", tname, target)
+	}
+	earned := float64(gold) + d.ActivePlayer.CurrentGold - 500
+	if earned < 0 {
+		earned = 0
+	}
+	csm := float64(me.Scores.CreepScore) / mins
+	gpm := earned / mins
+	kp := 0.0
+	if teamK > 0 {
+		kp = float64(me.Scores.Kills+me.Scores.Assists) * 100 / float64(teamK)
+	}
+	kda := float64(me.Scores.Kills+me.Scores.Assists) / float64(maxI(1, me.Scores.Deaths))
+
+	var bCSM, bGPM, bKP, bKDA, bLVL float64
+	hasBench := o.CSGoal != "off"
+	if hasBench {
+		b, _ := benchFor(o, me)
+		ramp := 0.0
+		if gt > 65 {
+			ramp = (gt - 65) / gt // i minion arrivano dopo circa 1:05
+		}
+		bCSM = b.CSM * ramp
+		bGPM = b.GPM * math.Min(1, 0.25+0.75*math.Min(1, gt/1200))
+		bKP = b.KP * 100
+		bKDA = b.KDA * math.Min(1, gt/900)
+		bLVL = expectedLevel(mins)
+	}
+	row := func(label string, you, ref float64, show bool) OLine {
+		l := OLine{Text: label, Right: fmt1(you), Color: colText, Bold: true}
+		if show {
+			l.Extra = fmt1(ref)
+			l.Color = cmpCol(you, ref)
+		}
+		return l
 	}
 	if o.CS.On {
-		w.Tiles = append(w.Tiles, OTile{Value: fmt.Sprintf("%.1f", csmin), Label: fmt.Sprintf("CS/min · %d CS", me.Scores.CreepScore), Sub: sub, Color: csCol})
+		w.Lines = append(w.Lines, row("CSM", csm, bCSM, hasBench))
+		if o.CSGoalValue > 0 {
+			w.Lines = append(w.Lines, row("OBIETTIVO", csm, o.CSGoalValue, true))
+		}
+		w.Lines = append(w.Lines, row("GPM", gpm, bGPM, hasBench))
 		if o.ShowKP {
-			w.Tiles = append(w.Tiles, OTile{Value: fmt.Sprintf("%d%%", kp), Label: "Partecipazione", Color: colText})
+			w.Lines = append(w.Lines, row("KP", kp, bKP, hasBench))
 		}
+		w.Lines = append(w.Lines, row("KDA", kda, bKDA, hasBench), row("LVL", float64(me.Level), math.Floor(bLVL), hasBench))
 	}
-	w.Lines = obj
 	if o.Compact {
-		w.Title, w.Lines, w.Tiles = "", nil, nil
-		if o.CS.On {
-			w.Segs = append(w.Segs, OLine{Text: fmt.Sprintf("%.1f", csmin), Color: csCol, Bold: true}, OLine{Text: "CS/min", Color: colMuted})
-			if sub != "" {
-				w.Segs = append(w.Segs, OLine{Text: "(" + sub + ")", Color: colMuted})
-			}
-			if o.ShowKP {
-				w.Segs = append(w.Segs, OLine{Text: "KP", Color: colMuted}, OLine{Text: fmt.Sprintf("%d%%", kp), Color: colText, Bold: true})
+		w.Title, w.Icons = "", false
+		for _, l := range w.Lines {
+			w.Segs = append(w.Segs, OLine{Text: l.Text, Color: colMuted, Bold: true}, OLine{Text: l.Right, Color: l.Color, Bold: true})
+			if l.Extra != "" {
+				w.Segs = append(w.Segs, OLine{Text: "/ " + l.Extra, Color: colMuted})
 			}
 		}
-		for i, l := range obj {
-			if i == 0 && len(w.Segs) > 0 {
-				w.Segs = append(w.Segs, OLine{Text: "·", Color: colMuted})
-			}
-			w.Segs = append(w.Segs, OLine{Text: l.Text, Color: colText}, OLine{Text: strings.ToLower(l.Right), Color: l.Color, Bold: true})
-		}
+		w.Lines = nil
 	}
 	return w
+}
+
+func mmssShort(sec float64) string {
+	if sec < 60 {
+		return fmt.Sprintf("%d", int(math.Ceil(sec)))
+	}
+	return mmss(sec)
+}
+
+// "Barracks_T1_L1": T1 = lato blu, T2 = lato rosso; L = top, C = mid, R = bot
+func inhibPos(name string) ([2]float64, bool) {
+	blue := map[string][2]float64{"L": {1171, 3571}, "C": {3203, 3208}, "R": {3452, 1236}}
+	red := map[string][2]float64{"L": {11261, 13676}, "C": {11598, 11667}, "R": {13604, 11316}}
+	p := strings.Split(name, "_")
+	if len(p) < 3 || len(p[2]) < 1 {
+		return [2]float64{}, false
+	}
+	lane := p[2][:1]
+	if p[1] == "T1" {
+		v, ok := blue[lane]
+		return v, ok
+	}
+	v, ok := red[lane]
+	return v, ok
 }

@@ -368,3 +368,12 @@ body.premium .premcta{display:none}
 .ow2 .ln{display:flex;justify-content:space-between;align-items:center;white-space:nowrap;gap:6px}
 .ow2 .ln.rowbg{background:#151830}
 .ow2.seg1{display:flex;align-items:center;border-radius:999px;white-space:nowrap}
+
+/* anteprima overlay stile Blitz */
+.ow2.bz{background:#1B1D24;border:1px solid #2C2F3A;color:#E6E8EE;overflow:hidden}
+.ow2.bz .hd{display:flex;align-items:center;background:#22252E;font-weight:800;letter-spacing:.14em}
+.ow2.bz .ics{display:flex;color:#8C93A3;font-style:normal;letter-spacing:0}.ow2.bz .ics i{font-style:normal}.ow2.bz .ics i.on{color:#38D6FF}
+.ow2.bz .ln{display:flex;justify-content:space-between;align-items:center;white-space:nowrap}
+.ow2.bz .ex{color:#8C93A3}
+.ow2.bz.seg1{display:flex;align-items:center;border-radius:6px}
+.mmtxt{position:absolute;transform:translate(-50%,-50%);font-weight:800;text-shadow:0 0 2px #000,0 0 2px #000,1px 1px 0 #000,-1px -1px 0 #000;white-space:nowrap;pointer-events:none}

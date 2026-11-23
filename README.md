@@ -12,7 +12,7 @@
 - **Sempre aggiornata**: i dati si aggiornano da soli (ogni 5 minuti più gli eventi in tempo reale) senza ricaricare la pagina.
 - **Champion select**: suggerimenti *per matchup* o *per team comp*, correzione manuale dei campioni rilevati e import automatico di rune, incantesimi (Flash su D o F) e set di oggetti.
 - **Patch**: note ufficiali riorganizzate in schede (buff, nerf e modifiche) con aggiornamento automatico all'uscita della patch, più le differenze rilevate dai dati di gioco.
-- **Overlay in-game**: CS in tempo reale, timer degli obiettivi (dagli eventi di gioco), timer dei campi della giungla anche sulla minimappa, promemoria per la scadenza dei buff Barone/Antico, timer di respawn, vite in ARAM, differenza di valore oggetti (tenendo premuto TAB) e statistiche delle squadre (Ctrl+T).
+- **Overlay in-game** (in stile Blitz): riquadro *benchmark* con CSM, GPM, KP, KDA e livello confrontati con la media dell'elo scelto al minuto di gioco attuale, più un obiettivo CS fisso opzionale; timer di obiettivi, giungla (anche sulla minimappa, insieme agli inibitori), buff Barone/Antico, respawn, vite in ARAM, valore oggetti e statistiche squadre. Tenendo premuto **TAB** in partita ogni riquadro si trascina, si blocca con il lucchetto, apre le impostazioni o si chiude.
 - **Streaming**: overlay per OBS (fonte Browser 1920×1080) con rango, LP, partite di oggi e obiettivo stagionale con divisione.
 - Tema scuro e chiaro; le impostazioni si applicano al volo.
 

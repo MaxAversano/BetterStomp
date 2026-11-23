@@ -697,8 +697,8 @@ function drawPatch(){
 }
 
 /* ================= OVERLAY ================= */
-const WIDGETS = [['cs.on','Riquadro principale: CS','CS al minuto e totale, aggiornati ogni secondo'],['showKP','Partecipazione alle uccisioni','Nel riquadro principale, accanto ai CS'],
-  ['objectives.on','Timer obiettivi','Drago, Larve, Araldo, Atakhan, Barone (dagli eventi di gioco)'],['compact','Versione riassunta','Tutto il riquadro principale su una riga (anche con Ctrl+Shift+C in gioco)'],
+const WIDGETS = [['cs.on','Benchmark','CSM, GPM, KP, KDA e livello: il tuo valore / la media dell\'elo scelto, aggiornati due volte al secondo'],['showKP','Partecipazione alle uccisioni (KP)','Riga KP nel benchmark'],
+  ['compact','Versione riassunta','Il benchmark su una riga (anche con Ctrl+Shift+C in gioco)'],['objectives.on','Timer obiettivi','Drago, Larve, Araldo, Atakhan, Barone (dagli eventi di gioco)'],
   ['camps.on','Timer campi della giungla','Blu, Gromp, Lupi, Pappagalli, Rosso, Sassi (in ARAM: le vite)'],['buffs.on','Promemoria buff','Scadenza buff del Barone e del Drago Antico'],
   ['deaths.on','Timer di respawn','Quanto manca al respawn dei giocatori morti'],['itemDiff.on','Differenza valore oggetti','Tieni premuto TAB: squadra e avversario diretto'],['loading.on','Statistiche squadre','Rango e win rate di tutti i giocatori (caricamento e Ctrl+T)']];
 const TIMERS = [['dragonFirst','Primo drago'],['dragonRespawn','Respawn drago'],['elderRespawn','Respawn Drago Antico'],['grubsFirst','Larve del Vuoto'],['heraldFirst','Araldo'],['atakhanFirst','Atakhan (0 = disattivo)'],
@@ -710,16 +710,17 @@ function pageOverlay(m){
   m.innerHTML = `<div class="page"><div class="row mb"><h1>Overlay in-game</h1><span class="sp"></span>
       <button class="btn ${o.editMode?'':'ghost'}" data-act="editmode">${o.editMode?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo'}</button>${sw('overlay.enabled',o.enabled)}<b>Attivo</b></div>
     <div class="card flat mb small muted">ℹ️ Imposta League in modalità <b>Senza bordi</b> (Impostazioni di gioco → Video → Modalità finestra): in "Schermo intero" Windows non permette a nessun overlay di comparire sopra il gioco.
-      Puoi spostare ogni elemento trascinandolo nell'anteprima qui a destra, oppure con <b>Sposta gli elementi sullo schermo</b> direttamente sopra il gioco (o sul desktop).</div>
+      In partita <b>tieni premuto TAB</b> e trascina i riquadri dove vuoi, con il 🔒 li blocchi. Puoi spostarli anche nell'anteprima qui a destra o con <b>Sposta gli elementi sullo schermo</b>.</div>
     <div class="grid2" style="grid-template-columns:1fr 1.15fr">
       <div class="col gap16">
         <div class="card"><h2>Elementi</h2>${WIDGETS.map(([k,n,d])=>`<div class="setting"><div class="lbl"><b>${n}</b><small>${d}</small></div>${sw('overlay.'+k, g(k))}</div>`).join('')}
           <div class="setting"><div class="lbl"><b>Dimensione</b></div><input type="range" min="0.7" max="1.6" step="0.05" value="${o.scale}" data-setnum="overlay.scale" style="width:160px"></div></div>
-        <div class="card"><h2>Obiettivo CS</h2>
-          <div class="setting"><div class="lbl"><b>Confronta i tuoi CS/min con</b></div><select data-set="overlay.csGoal">${opt([['off','Nessun confronto'],['elo','La media di un elo'],['custom','Un valore che scelgo io']],o.csGoal)}</select></div>
-          ${o.csGoal==='elo'?`<div class="setting"><div class="lbl"><b>Elo di riferimento</b><small>Media del tuo campione e ruolo in quell'elo, dalle partite analizzate (* = stima finché non ci sono dati)</small></div><select data-set="overlay.csGoalTier">${opt([['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])),o.csGoalTier)}</select></div>`:''}
-          ${o.csGoal==='custom'?`<div class="setting"><div class="lbl"><b>CS al minuto da raggiungere</b></div><input type="number" min="1" max="15" step="0.1" value="${o.csGoalValue}" data-setnum="overlay.csGoalValue" style="width:90px"></div>`:''}
-          <p class="tiny dim">Il valore diventa verde se sei sopra l'obiettivo, giallo se sei vicino e rosso se sei sotto.</p></div>
+        <div class="card"><h2>Confronto CS e statistiche</h2>
+          <div class="setting"><div class="lbl"><b>Elo di riferimento</b><small>Il numero dopo la "/" è la media di quell'elo per il tuo campione e ruolo, al minuto di gioco attuale (dalle partite analizzate; finché non ci sono dati è una stima)</small></div>
+            <select data-set="overlay.csGoal">${opt([['elo','Confronta con un elo'],['off','Nessun confronto']],o.csGoal==='off'?'off':'elo')}</select></div>
+          ${o.csGoal!=='off'?`<div class="setting"><div class="lbl"><b>Elo</b></div><select data-set="overlay.csGoalTier">${opt([['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])),o.csGoalTier)}</select></div>`:''}
+          <div class="setting"><div class="lbl"><b>Obiettivo fisso di CS al minuto</b><small>Aggiunge la riga "OBIETTIVO" con il numero che scegli tu (0 = disattivato)</small></div><input type="number" min="0" max="15" step="0.1" value="${o.csGoalValue||0}" data-setnum="overlay.csGoalValue" style="width:90px"></div>
+          <p class="tiny dim">Il tuo valore è verde se sei sopra il riferimento, bianco se sei vicino e rosso se sei sotto.</p></div>
         <div class="card"><div class="ctitle"><h2>Timer sulla minimappa</h2><span class="sp"></span>${sw('overlay.minimap',o.minimap)}</div>
           <p class="small muted">I timer compaiono direttamente sopra i campi. Regola la dimensione finché le etichette non combaciano con la tua minimappa.</p>
           <div class="setting"><div class="lbl"><b>Grandezza delle etichette</b></div><input type="range" min="0.4" max="1.3" step="0.05" value="${o.pillScale}" data-setnum="overlay.pillScale" style="width:180px"></div>
@@ -730,7 +731,7 @@ function pageOverlay(m){
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…6</span></span><span>Campo del tuo lato ripulito: 1 Blu · 2 Gromp · 3 Lupi · 4 Pappagalli · 5 Rosso · 6 Sassi (premi di nuovo per annullare)</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">1…6</span></span><span>Stesso campo, ma del lato nemico</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…4</span></span><span>In ARAM: vita raccolta (avvia il timer di respawn)</span>
-          <span><span class="kbd">TAB</span> (tenuto)</span><span>Differenza valore oggetti</span>
+          <span><span class="kbd">TAB</span> (tenuto)</span><span>Differenza valore oggetti e <b>overlay cliccabile</b>: trascini ogni riquadro, 🔒 lo blocchi, ⚙ apri queste impostazioni, ✕ lo nascondi</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">T</span></span><span>Mostra/nascondi statistiche delle squadre</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">C</span></span><span>Riquadro principale completo / riassunto</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">O</span></span><span>Nascondi/mostra tutto l'overlay (si riattiva da solo alla partita successiva)</span></div></div>
@@ -756,17 +757,16 @@ async function drawOverlayPreview(){
   const px = v => (v*k).toFixed(2)+'px';
   let h = `<div class="mm" style="width:${o.minimapSize*U}px;height:${o.minimapSize*U}px;right:${o.minimapRight*U}px;bottom:${o.minimapBottom*U}px"></div>`;
   for(const w of md.widgets){
-    if(w.pill){ const ps=o.pillScale||0.7; h += `<div class="ow pill" style="--acc:${w.accent};left:${W - w.x*U}px;top:${H - w.y*U}px;color:${w.lines[0].color};font-size:${Math.max(4,10*ps*k)}px;padding:${px(1)} ${px(5*ps)}">${esc(w.lines[0].text)}</div>`; continue; }
+    if(w.pill){ const ps=o.pillScale||0.8; h += `<div class="mmtxt" style="left:${W - w.x*U}px;top:${H - w.y*U}px;color:${w.lines[0].color};font-size:${Math.max(4,12*ps*k)}px">${esc(w.lines[0].text)}</div>`; continue; }
     const left = w.x*W, top = w.y*H, center = w.anchor==='center';
     const pos = `left:${left}px;top:${top}px;${center?'transform:translateX(-50%);':''}`;
     if(w.segs?.length){
-      h += `<div class="ow2 seg1" data-key="${w.key||''}" style="${pos};--acc:${w.accent};font-size:${px(13)};padding:0 ${px(12)};height:${px(30)};gap:${px(6)}"><i class="d" style="width:${px(8)};height:${px(8)}"></i>${w.segs.map(sg=>`<span style="color:${sg.color};font-weight:${sg.bold?800:500}">${esc(sg.text)}</span>`).join('')}</div>`;
+      h += `<div class="ow2 bz seg1" data-key="${w.key||''}" style="${pos};font-size:${px(11.5)};padding:0 ${px(8)};height:${px(24)};gap:${px(5)};border-radius:${px(6)}">${w.segs.map(sg=>`<span style="color:${sg.color};font-weight:${sg.bold?800:500}">${esc(sg.text)}</span>`).join('')}</div>`;
       continue;
     }
-    h += `<div class="ow2" data-key="${w.key||''}" style="${pos};--acc:${w.accent};width:${px(w.width)};padding:${px(12)};border-radius:${px(16)};font-size:${px(13)}">
-      ${w.title?`<div class="t" style="height:${px(22)};font-size:${px(11)};gap:${px(6)}">${w.dot?`<i class="d" style="width:${px(8)};height:${px(8)}"></i>`:`<i class="bar2" style="width:${px(3)};height:${px(12)}"></i>`}${esc(w.title)}</div>`:''}
-      ${w.tiles?.length?`<div class="tiles" style="gap:${px(8)};margin-bottom:${px(8)}">${w.tiles.map(t=>`<div class="tile" style="padding:${px(7)} ${px(10)};border-radius:${px(12)}"><div class="v" style="font-size:${px(22)};color:${t.color}">${esc(t.value)}</div><div class="l" style="font-size:${px(11)}">${esc(t.label)}</div>${t.sub?`<div class="l b" style="font-size:${px(10.5)}">${esc(t.sub)}</div>`:''}</div>`).join('')}</div>`:''}
-      ${(w.lines||[]).map(l=>`<div class="ln ${l.right?'rowbg':''}" style="height:${px(l.size>=16?28:24)};padding:0 ${px(l.right?8:2)};border-radius:${px(8)};margin-bottom:${px(1)}"><span style="color:${l.right?'#E4E7FA':l.color};font-weight:${l.bold&&!l.right?800:500}">${esc(l.text)}</span><span style="color:${l.color};font-weight:800">${esc(l.right||'')}</span></div>`).join('')}</div>`;
+    h += `<div class="ow2 bz" data-key="${w.key||''}" style="${pos};width:${px(w.width)};border-radius:${px(8)};font-size:${px(11.5)}">
+      ${w.title?`<div class="hd" style="height:${px(26)};padding:0 ${px(10)};font-size:${px(10.5)}"><span class="sp">${esc(w.title)}</span>${w.icons?`<span class="ics" style="gap:${px(4)}"><i class="${w.locked?'on':''}">${w.locked?'🔒':'🔓'}</i><i>⚙</i><i>✕</i></span>`:''}</div>`:''}
+      <div style="padding:${px(8)} ${px(10)}">${(w.lines||[]).map(l=>`<div class="ln" style="height:${px(l.size>=16?26:18)}"><span style="color:${l.right?'#E6E8EE':l.color};font-weight:700">${esc(l.text)}</span><span><b style="color:${l.color}">${esc(l.right||'')}</b>${l.extra?`<span class="ex"> / ${esc(l.extra)}</span>`:''}</span></div>`).join('')}</div></div>`;
   }
   el.innerHTML = h;
 }

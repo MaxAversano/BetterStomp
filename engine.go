@@ -83,6 +83,8 @@ type ChampAgg struct {
 	D      int64            `json:"d"`
 	A      int64            `json:"a"`
 	CS     int64            `json:"cs"`
+	G      int64            `json:"g"`   // oro guadagnato
+	KPm    int64            `json:"kpm"` // partecipazione alle uccisioni (per mille)
 	Dur    int64            `json:"dur"`
 }
 
@@ -183,6 +185,8 @@ func (a *ChampAgg) merge(o *ChampAgg) {
 	a.D += o.D
 	a.A += o.A
 	a.CS += o.CS
+	a.G += o.G
+	a.KPm += o.KPm
 	a.Dur += o.Dur
 }
 
@@ -667,6 +671,10 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 	}
 	isPos := positional(mode)
 	arena := mode == "arena"
+	teamKills := map[int]int{}
+	for _, p := range m.Info.Participants {
+		teamKills[p.TeamID] += p.Kills
+	}
 	for i, p := range m.Info.Participants {
 		pos := "ALL"
 		if isPos && p.TeamPos != "" {
@@ -678,6 +686,10 @@ func (e *Engine) ingest(m *MMatch, mode, tier string, tl *MTimeline) {
 		a.D += int64(p.Deaths)
 		a.A += int64(p.Assists)
 		a.CS += int64(p.Minions + p.Neutral)
+		a.G += int64(p.Gold)
+		if tk := teamKills[p.TeamID]; tk > 0 {
+			a.KPm += int64((p.Kills + p.Assists) * 1000 / tk)
+		}
 		a.Dur += int64(m.Info.Duration)
 		boots := 0
 		var final []int
@@ -1495,45 +1507,69 @@ func (e *Engine) Status() EngineStatus {
 	return st
 }
 
-// CS al minuto medi per campione/ruolo nell'elo scelto (dalle partite analizzate)
+// medie di riferimento (per minuto di partita) per campione/ruolo nell'elo scelto
+type Bench struct {
+	CSM  float64 `json:"csm"`
+	GPM  float64 `json:"gpm"`
+	KP   float64 `json:"kp"`
+	KDA  float64 `json:"kda"`
+	Real bool    `json:"real"`
+}
+
 var csRef = map[string]float64{"IRON": 4.6, "BRONZE": 5.0, "SILVER": 5.4, "GOLD": 5.9, "PLATINUM": 6.3, "EMERALD": 6.7, "DIAMOND": 7.1, "MASTER": 7.5, "GRANDMASTER": 7.8, "CHALLENGER": 8.1}
 
-func (e *Engine) CSBenchmark(champ int, pos, tier string) (float64, bool) {
+func (e *Engine) Benchmarks(champ int, pos, tier string) Bench {
+	tier = strings.TrimSuffix(tier, "+")
+	fb := Bench{CSM: csRef[tier], GPM: 360 + 8*float64(indexOf(Tiers, tier)), KP: 0.5, KDA: 2.4 + 0.08*float64(indexOf(Tiers, tier))}
+	if fb.CSM == 0 {
+		fb.CSM = 6.5
+	}
+	switch pos {
+	case "JUNGLE":
+		fb.CSM *= 0.82
+		fb.KP = 0.6
+	case "UTILITY":
+		fb.CSM, fb.GPM, fb.KP = 1.2, fb.GPM*0.7, 0.62
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	fallback := func() (float64, bool) {
-		v := csRef[strings.TrimSuffix(tier, "+")]
-		if v == 0 {
-			v = 6.5
-		}
-		if pos == "JUNGLE" {
-			v *= 0.82
-		}
-		if pos == "UTILITY" {
-			v = 1.2
-		}
-		return v, false
-	}
 	if e.db == nil {
-		return fallback()
+		return fb
 	}
-	b := e.merged(e.db, "ranked", []string{strings.TrimSuffix(tier, "+")})
-	var cs, dur int64
+	b := e.merged(e.db, "ranked", []string{tier})
+	sum := newAgg()
 	if a := b.Champs[fmt.Sprintf("%d|%s", champ, pos)]; a != nil && a.N >= 15 {
-		cs, dur = a.CS, a.Dur
+		sum.merge(a)
 	} else {
 		for k, a := range b.Champs {
 			if _, p := splitKey(k); p == pos {
-				cs += a.CS
-				dur += a.Dur
+				sum.merge(a)
 			}
 		}
-		if dur < 60*60*30 { // meno di ~30 partite di quel ruolo
-			return fallback()
+	}
+	if sum.N < 30 || sum.Dur == 0 {
+		return fb
+	}
+	mins := float64(sum.Dur) / 60
+	r := Bench{CSM: float64(sum.CS) / mins, KDA: float64(sum.K+sum.A) / math.Max(1, float64(sum.D)), Real: true}
+	if sum.G > 0 {
+		r.GPM = float64(sum.G) / mins
+	} else {
+		r.GPM = fb.GPM
+	}
+	if sum.KPm > 0 {
+		r.KP = float64(sum.KPm) / 1000 / float64(sum.N)
+	} else {
+		r.KP = fb.KP
+	}
+	return r
+}
+
+func indexOf(list []string, v string) int {
+	for i, x := range list {
+		if x == v {
+			return i
 		}
 	}
-	if dur == 0 {
-		return fallback()
-	}
-	return float64(cs) / (float64(dur) / 60), true
+	return 5
 }
