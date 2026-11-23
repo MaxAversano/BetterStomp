@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -82,22 +85,24 @@ type Roles struct {
 }
 
 type Profile struct {
-	Source      string                 `json:"source"`
-	Name        string                 `json:"name"`
-	Tag         string                 `json:"tag"`
-	Level       int                    `json:"level"`
-	Icon        int                    `json:"icon"`
-	Puuid       string                 `json:"puuid"`
-	Region      string                 `json:"region"`
-	Ranked      map[string]RankedQueue `json:"ranked"`
-	Mastery     []MasteryRow           `json:"mastery"`
-	Matches     []PMatch               `json:"matches"`
-	Roles       Roles                  `json:"roles"`
-	Premades    []Premade              `json:"premades"`
-	Champs      []ChampRow             `json:"champs"`
-	Season      []ChampRow             `json:"season"` // rendimento della stagione (classificate) dal client
-	SeasonGames int                    `json:"seasonGames"`
-	Today       struct {
+	Source        string                 `json:"source"`
+	Name          string                 `json:"name"`
+	Tag           string                 `json:"tag"`
+	Level         int                    `json:"level"`
+	Icon          int                    `json:"icon"`
+	Puuid         string                 `json:"puuid"`
+	Region        string                 `json:"region"`
+	Ranked        map[string]RankedQueue `json:"ranked"`
+	Mastery       []MasteryRow           `json:"mastery"`
+	Matches       []PMatch               `json:"matches"`
+	Roles         Roles                  `json:"roles"`
+	Premades      []Premade              `json:"premades"`
+	Champs        []ChampRow             `json:"champs"`
+	Season        []ChampRow             `json:"season"` // rendimento della stagione (classificate) dal client
+	SeasonGames   int                    `json:"seasonGames"`
+	SeasonPending int                    `json:"seasonPending"` // partite ancora da analizzare sul server
+	SeasonLocal   bool                   `json:"seasonLocal"`   // solo le ultime 20 partite del client
+	Today         struct {
 		W int `json:"w"`
 		L int `json:"l"`
 	} `json:"today"`
@@ -507,9 +512,12 @@ func ownProfile(force bool) *Profile {
 	}
 	sort.Slice(p.Matches, func(i, j int) bool { return p.Matches[i].Start > p.Matches[j].Start })
 	computeDerived(p)
-	p.Season = seasonChamps(s.Puuid)
-	if len(p.Season) == 0 {
+	// stagione completa dal server (Riot API); altrimenti ultime partite del client
+	if sc, pend, ok := serverSeason(s.Puuid, seasonStart); ok {
+		p.Season, p.SeasonPending = sc, pend
+	} else {
 		p.Season = seasonFromHistory(all, s.Puuid, seasonStart)
+		p.SeasonLocal = true
 	}
 	p.SeasonGames = 0
 	for _, c := range p.Season {
@@ -728,4 +736,70 @@ func seasonFromHistory(games []lcuGame, puuid string, since int64) []ChampRow {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Games > out[j].Games })
 	return out
+}
+
+// chiede al server il rendimento della stagione Solo/Duo (le partite vengono lette poco alla volta)
+var (
+	seasonMu    sync.Mutex
+	seasonCache struct {
+		champs  []ChampRow
+		pending int
+		at      time.Time
+		ok      bool
+	}
+)
+
+func serverSeason(puuid string, since int64) ([]ChampRow, int, bool) {
+	s := getSettings()
+	if s.RemoteURL == "" || s.RemoteToken == "" {
+		return nil, 0, false
+	}
+	seasonMu.Lock()
+	c := seasonCache
+	fresh := c.ok && (time.Since(c.at) < 90*time.Second || (c.pending == 0 && time.Since(c.at) < 10*time.Minute))
+	if !fresh && !seasonBusy {
+		seasonBusy = true
+		go func() {
+			fetchServerSeason(s, puuid, since)
+			seasonMu.Lock()
+			seasonBusy = false
+			seasonMu.Unlock()
+			profMu.Lock()
+			delete(profCache, "me") // al prossimo aggiornamento il profilo mostra i dati nuovi
+			profMu.Unlock()
+		}()
+	}
+	seasonMu.Unlock()
+	return c.champs, c.pending, c.ok
+}
+
+var seasonBusy bool
+
+func fetchServerSeason(s Settings, puuid string, since int64) {
+	c := struct {
+		champs  []ChampRow
+		pending int
+		ok      bool
+	}{}
+	base := strings.TrimRight(s.RemoteURL, "/")
+	base = strings.TrimSuffix(base, "/data.php")
+	u := fmt.Sprintf("%s/player.php?k=%s&puuid=%s&since=%d", base, url.QueryEscape(s.RemoteToken), url.QueryEscape(puuid), since)
+	cl := &http.Client{Timeout: 50 * time.Second}
+	resp, err := cl.Get(u)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	var r struct {
+		Champs  []ChampRow `json:"champs"`
+		Pending int        `json:"pending"`
+		Busy    bool       `json:"busy"`
+	}
+	if resp.StatusCode != 200 || json.NewDecoder(resp.Body).Decode(&r) != nil || r.Busy {
+		return
+	}
+	_ = c
+	seasonMu.Lock()
+	seasonCache.champs, seasonCache.pending, seasonCache.at, seasonCache.ok = r.Champs, r.Pending, time.Now(), true
+	seasonMu.Unlock()
 }

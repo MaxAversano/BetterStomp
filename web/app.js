@@ -141,7 +141,8 @@ async function poll(){
   if(c.phase==='ChampSelect' && S.lastPhase!=='ChampSelect' && route()[0]!=='select'){ location.hash='#/select'; }
   if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.profile=null; S.ui.forceProf=true; setTimeout(()=>{ if(route()[0]==='profilo') render(true); }, 4000); }
   S.lastPhase = c.phase;
-  if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
+  if(c.connected && S.profile && Date.now()-(S._profAt||0) > 120000 && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); } }).finally(()=>S._profLoading=false); }
+  if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
   renderSide();
   if(route()[0]==='select') updateSelect();
   if(route()[0]==='impostazioni') updateEngineBox();
@@ -177,10 +178,10 @@ function renderSide(){
       <div class="tiny muted">${p? (p.roles.enough? 'Ruolo: '+POS[p.roles.main]+(p.roles.second?' / '+POS[p.roles.second]:'') : `Ruolo: servono 20 partite (${p.roles.games}/20)`) : 'Carico il profilo…'}</div></div></div>`;
     h += `<div class="card side-card">${rankLine('Solo/Duo', c.ranked?.RANKED_SOLO_5x5)}${rankLine('Flex', c.ranked?.RANKED_FLEX_SR)}
       ${p?`<div class="rkline"><span class="rkph">📅</span><span class="muted sp">Oggi (Solo/Duo)</span><b><span class="good">${p.today.w}V</span> - <span class="bad">${p.today.l}S</span></b></div>`:''}</div>`;
-    const champsSrc = p?.season?.length ? p.season : p?.champs;
+    const champsSrc = p?.season || [];
     if(champsSrc?.length){
       const list = champsSrc.slice(0, more.champs?12:4);
-      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.season?.length?`· stagione Solo/Duo · ${p.seasonGames} partite`:'· ultime partite'}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
+      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.seasonLocal?'· Solo/Duo · ultime 20 partite del client':`· stagione Solo/Duo · ${p.seasonGames} partite${p.seasonPending?` (${p.seasonPending} in arrivo)`:''}`}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
         <div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny dim">${x.kda.toFixed(1).replace('.',',')} KDA</div></div>
         <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
         ${champsSrc.length>4?`<button class="showmore" data-act="sidemore" data-k="champs">${more.champs?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
