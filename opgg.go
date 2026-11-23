@@ -539,32 +539,84 @@ func opggTierLabel(t, rank int) string {
 	return "D"
 }
 
+// Tier calcolato da noi (stile lolalytics) invece di quello di OP.GG, che pesa molto la popolarità:
+// win rate rispetto alla media della corsia (corretto per il numero di partite) + pick rate + ban rate,
+// poi il tier va per percentile dentro ogni corsia.
 func metaToRows(meta []opggMetaRow, pos string) ([]TierRow, int) {
+	sum, wsum := map[string]float64{}, map[string]float64{}
+	for _, r := range meta {
+		if knownChamp(r.Champion) && r.Play > 0 {
+			sum[r.Pos] += float64(r.Play)
+			wsum[r.Pos] += r.WinRate * float64(r.Play)
+		}
+	}
+	lanes := map[string][]TierRow{}
+	for _, r := range meta {
+		if !knownChamp(r.Champion) || r.Play <= 0 || sum[r.Pos] == 0 {
+			continue
+		}
+		pr := float64(r.Play) * 2 / sum[r.Pos] // in ogni partita ci sono due campioni per corsia
+		if pr < 0.004 {                        // sotto lo 0,4% di pick rate sono casi isolati
+			continue
+		}
+		avg := wsum[r.Pos] / sum[r.Pos]
+		const k = 1000.0 // poche partite: il win rate viene avvicinato alla media
+		adj := (r.WinRate*float64(r.Play) + avg*k) / (float64(r.Play) + k)
+		score := (adj-avg)*100 + 1.1*math.Log(pr*100) + 6*r.BanRate
+		lanes[r.Pos] = append(lanes[r.Pos], TierRow{Champion: r.Champion, Position: r.Pos, Games: r.Play, WinRate: r.WinRate,
+			PickRate: pr, BanRate: r.BanRate, Score: math.Round(score*100) / 100})
+	}
 	var rows []TierRow
 	tot := 0
-	for _, r := range meta {
-		if (pos != "" && pos != "ALL" && r.Pos != pos) || !knownChamp(r.Champion) {
-			continue
+	for lane, l := range lanes {
+		sort.Slice(l, func(i, j int) bool { return l[i].Score > l[j].Score })
+		for i := range l {
+			q := float64(i) / float64(len(l))
+			switch {
+			case q < 0.04:
+				l[i].Tier = "S+"
+			case q < 0.14:
+				l[i].Tier = "S"
+			case q < 0.35:
+				l[i].Tier = "A"
+			case q < 0.65:
+				l[i].Tier = "B"
+			case q < 0.88:
+				l[i].Tier = "C"
+			default:
+				l[i].Tier = "D"
+			}
 		}
-		tot += r.Play
-		if r.RoleRate < 0.08 && r.Play < 3000 { // ruoli improvvisati
-			continue
+		if pos == "" || pos == "ALL" || pos == lane {
+			rows = append(rows, l...)
+			tot += int(sum[lane] / 2)
 		}
-		t := r.Tier
-		if t <= 0 {
-			t = 5
-		}
-		rows = append(rows, TierRow{Champion: r.Champion, Position: r.Pos, Games: r.Play, WinRate: r.WinRate,
-			PickRate: r.PickRate, BanRate: r.BanRate, Tier: opggTierLabel(r.Tier, r.Rank),
-			Score: float64(6-t)*1000 + float64(1000-r.Rank)})
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].Score != rows[j].Score {
-			return rows[i].Score > rows[j].Score
-		}
-		return rows[i].WinRate > rows[j].WinRate
-	})
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Score > rows[j].Score })
 	return rows, tot
+}
+
+// tier della tier list (se già calcolata) per la pagina del campione
+func (o *opggClient) tierFor(champ int, pos, ot string) string {
+	if ot == "" {
+		ot = "all"
+	}
+	o.mu.Lock()
+	var src []opggMetaRow
+	if j := o.jobs[ot]; j != nil && !j.Busy {
+		src = j.Rows
+	}
+	o.mu.Unlock()
+	if len(src) == 0 {
+		return ""
+	}
+	rows, _ := metaToRows(src, pos)
+	for _, r := range rows {
+		if r.Champion == champ {
+			return r.Tier
+		}
+	}
+	return ""
 }
 
 type opggTierInfo struct {
@@ -586,9 +638,7 @@ func opggTierList(mode, tf, pos string) ([]TierRow, opggTierInfo, error) {
 	}
 	ot := opggTier(tf)
 	if ot == "" {
-		rows, tot := metaToRows(meta, pos)
-		info.Games, info.Elo = tot, true
-		return rows, info, nil
+		ot = "all" // anche per tutti i ranghi passo dalle schede dei campioni: win rate più precisi
 	}
 	job := opgg.tierJob(ot, meta)
 	opgg.mu.Lock()
@@ -615,7 +665,7 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 	j := o.jobs[ot]
 	if j == nil {
 		j = &opggTierJob{Tier: ot}
-		readJSON(filepath.Join(opggDir(), "tier3_"+ot+".json"), j)
+		readJSON(filepath.Join(opggDir(), "tier4_"+ot+".json"), j)
 		o.jobs[ot] = j
 	}
 	stale := len(j.Rows) == 0 || time.Since(j.At) > 12*time.Hour
@@ -646,7 +696,7 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 	j.Total = len(todo)
 	o.mu.Unlock()
 	fields := []string{"data.summary.positions[].name", "data.summary.positions[].stats.{play,win_rate,pick_rate,ban_rate,role_rate}",
-		"data.summary.positions[].stats.tier_data.{tier,rank}"}
+		"data.summary.positions[].stats.tier_data.{tier,rank}", "data.summary.positions[].roles[].stats.{play,win}"}
 	var out []opggMetaRow
 	var omu sync.Mutex
 	fails := 0
@@ -680,7 +730,17 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 						if ps == "" || ogi(st, "play") == 0 {
 							continue
 						}
-						out = append(out, opggMetaRow{Champion: p.Champion, Pos: ps, Play: ogi(st, "play"), WinRate: ogf(st, "win_rate"),
+						// OP.GG arrotonda il win rate a due cifre (51%): lo ricalcolo dalle vittorie per stile di gioco
+						wr := ogf(st, "win_rate")
+						rn, rw := 0, 0
+						for _, rl := range ogl(x, "roles") {
+							rn += ogi(rl, "stats", "play")
+							rw += ogi(rl, "stats", "win")
+						}
+						if rn > 100 && math.Abs(float64(rw)/float64(rn)-wr) < 0.012 {
+							wr = float64(rw) / float64(rn)
+						}
+						out = append(out, opggMetaRow{Champion: p.Champion, Pos: ps, Play: ogi(st, "play"), WinRate: wr,
 							PickRate: ogf(st, "pick_rate"), BanRate: ogf(st, "ban_rate"), RoleRate: ogf(st, "role_rate"),
 							Tier: ogi(st, "tier_data", "tier"), Rank: ogi(st, "tier_data", "rank")})
 					}
@@ -706,7 +766,7 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 		return
 	}
 	j.Rows, j.At = out, time.Now()
-	writeJSON(filepath.Join(opggDir(), "tier3_"+j.Tier+".json"), j)
+	writeJSON(filepath.Join(opggDir(), "tier4_"+j.Tier+".json"), j)
 }
 
 // ---------- build del campione ----------
@@ -908,6 +968,9 @@ func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 		}
 	}
 	r.Situational = sit
+	if t := opgg.tierFor(champ, pos, ot); t != "" {
+		r.TierLabel = t
+	}
 	if len(core.IDs) > 0 {
 		r.Variants = []BuildVariant{{Label: "OP.GG", Path: core.IDs, Boots: boots, Games: core.Games, WinRate: core.WinRate,
 			Share: math.Min(1, core.Pick), Core: core.IDs, Situational: sit, Runes: r.Runes}}
