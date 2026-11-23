@@ -468,6 +468,17 @@ func paintOverlay(hdc uintptr) {
 		icons = append(icons, iconHit{"minimap", "resize", rect{r.l - hd, r.t - hd, r.l + hd, r.t + hd}})
 	}
 
+	if interactive && ovPanel != "" {
+		for _, hr := range hits {
+			if hr.key == ovPanel {
+				icons = append(icons, drawPanel(mem, hr.r, s, k)...)
+				break
+			}
+		}
+	} else if !interactive {
+		ovPanel = ""
+	}
+
 	if s.EditMode {
 		msg := "MODALITÀ MODIFICA  ·  trascina gli elementi  ·  in partita basta tenere premuto TAB"
 		f := fs(14, true)
@@ -570,8 +581,21 @@ func widgetLocked(key string) bool {
 
 // pulsanti nell'intestazione: lucchetto, impostazioni (apre BetterStomp), chiudi
 func widgetAction(key, action string) {
-	if action == "gear" {
+	if action == "gear" { // impostazioni direttamente in partita
+		if ovPanel == key {
+			ovPanel = ""
+		} else {
+			ovPanel = key
+		}
+		return
+	}
+	if action == "app" {
+		ovPanel = ""
 		go openAppWindow(appURL + "#/overlay")
+		return
+	}
+	if strings.HasPrefix(action, "opt:") {
+		panelOption(strings.TrimPrefix(action, "opt:"))
 		return
 	}
 	s := getSettings()
@@ -809,4 +833,129 @@ func startOverlay() {
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		pDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
 	}
+}
+
+// ---------- impostazioni dentro l'overlay (rotella ⚙) ----------
+
+var ovPanel string
+
+func panelOption(opt string) {
+	s := getSettings()
+	o := &s.Overlay
+	tierIdx := 0
+	for i, t := range Tiers {
+		if t == o.CSGoalTier {
+			tierIdx = i
+		}
+	}
+	switch opt {
+	case "elo":
+		if o.CSGoal == "off" {
+			o.CSGoal = "elo"
+		} else {
+			o.CSGoal = "off"
+		}
+	case "tier-":
+		if tierIdx > 0 {
+			o.CSGoalTier = Tiers[tierIdx-1]
+		}
+	case "tier+":
+		if tierIdx < len(Tiers)-1 {
+			o.CSGoalTier = Tiers[tierIdx+1]
+		}
+	case "goal-":
+		o.CSGoalValue = math.Max(0, o.CSGoalValue-0.5)
+	case "goal+":
+		if o.CSGoalValue == 0 {
+			o.CSGoalValue = 6
+		} else {
+			o.CSGoalValue = math.Min(12, o.CSGoalValue+0.5)
+		}
+	case "compact":
+		o.Compact = !o.Compact
+	case "kp":
+		o.ShowKP = !o.ShowKP
+	case "hide":
+		if w := widgetPtr(o, ovPanel); w != nil {
+			w.On = false
+		}
+		ovPanel = ""
+	}
+	saveSettings(s)
+}
+
+func drawPanel(hdc uintptr, wr rect, o OverlaySettings, k float64) []iconHit {
+	sc := func(v float64) int32 { return int32(v*k + 0.5) }
+	f := font(int(11.5*k+0.5), true)
+	fn := font(int(11.5*k+0.5), false)
+	type row struct {
+		label string
+		btns  [][2]string // testo, azione
+		value string
+	}
+	onOff := func(b bool) string {
+		if b {
+			return "ON"
+		}
+		return "OFF"
+	}
+	var rows []row
+	if ovPanel == "cs" {
+		goal := "off"
+		if o.CSGoalValue > 0 {
+			goal = strconv.FormatFloat(o.CSGoalValue, 'f', 1, 64) + "/min"
+		}
+		rows = []row{
+			{"Confronto con elo", [][2]string{{onOff(o.CSGoal != "off"), "opt:elo"}}, ""},
+			{"Elo di riferimento", [][2]string{{"◀", "opt:tier-"}, {"▶", "opt:tier+"}}, tierIT[o.CSGoalTier]},
+			{"Obiettivo CS fisso", [][2]string{{"−", "opt:goal-"}, {"+", "opt:goal+"}}, goal},
+			{"Versione riassunta", [][2]string{{onOff(o.Compact), "opt:compact"}}, ""},
+			{"Partecipazione uccisioni", [][2]string{{onOff(o.ShowKP), "opt:kp"}}, ""},
+		}
+	}
+	rows = append(rows, row{"Nascondi questo riquadro", [][2]string{{"✕", "opt:hide"}}, ""}, row{"Tutte le impostazioni", [][2]string{{"Apri app", "app"}}, ""})
+	w := sc(290)
+	rowH := sc(30)
+	h := sc(36) + rowH*int32(len(rows)) + sc(8)
+	x := wr.r + sc(8)
+	if x+w > ovW {
+		x = wr.l - sc(8) - w
+	}
+	y := wr.t
+	if y+h > ovH {
+		y = ovH - h
+	}
+	roundRect(hdc, rect{x, y, x + w, y + h}, sc(8), rgb("#1B1D24"), rgb("#38D6FF"))
+	pSetTextCharacterExtra.Call(hdc, uintptr(sc(1.4)))
+	drawText(hdc, "IMPOSTAZIONI", rect{x + sc(12), y, x + w, y + sc(34)}, rgb("#E6E8EE"), font(int(10.5*k+0.5), true), dtLeft)
+	pSetTextCharacterExtra.Call(hdc, 0)
+	var out []iconHit
+	cy := y + sc(34)
+	for _, r := range rows {
+		drawText(hdc, r.label, rect{x + sc(12), cy, x + w - sc(110), cy + rowH}, rgb("#8C93A3"), fn, dtLeft|dtEndEllipsis)
+		bx := x + w - sc(12)
+		for i := len(r.btns) - 1; i >= 0; i-- {
+			b := r.btns[i]
+			bw := textWidth(hdc, b[0], f) + sc(16)
+			if bw < sc(26) {
+				bw = sc(26)
+			}
+			br := rect{bx - bw, cy + sc(4), bx, cy + rowH - sc(4)}
+			col := rgb("#2C2F3A")
+			if b[0] == "ON" {
+				col = rgb("#1F6F5A")
+			}
+			roundRect(hdc, br, sc(6), col, rgb("#3A3E4C"))
+			drawText(hdc, b[0], br, rgb("#FFFFFF"), f, dtCenter)
+			out = append(out, iconHit{ovPanel, b[1], br})
+			bx -= bw + sc(6)
+			if i == 1 && r.value != "" { // valore tra i due pulsanti
+				vw := textWidth(hdc, r.value, f) + sc(12)
+				drawText(hdc, r.value, rect{bx - vw, cy, bx, cy + rowH}, rgb("#38D6FF"), f, dtCenter)
+				bx -= vw + sc(4)
+			}
+		}
+		cy += rowH
+	}
+	return out
 }

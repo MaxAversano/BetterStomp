@@ -4,7 +4,11 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/png"
+	"log"
 	"math"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -211,6 +215,18 @@ func ocrStep() {
 	}
 	ocrMu.Lock()
 	defer ocrMu.Unlock()
+	// diagnostica: ogni 20 s salva la striscia letta e cosa ha capito (per sistemare la lettura)
+	if time.Since(ocrDbgAt) > 20*time.Second {
+		ocrDbgAt = time.Now()
+		saveStrip(buf, w, h)
+		api := -1
+		for i := range d.AllPlayers {
+			if samePlayer(d.AllPlayers[i], d.ActivePlayer.RiotID, d.ActivePlayer.RiotName) || samePlayer(d.AllPlayers[i], d.ActivePlayer.SummonerName, "") {
+				api = d.AllPlayers[i].Scores.CreepScore
+			}
+		}
+		log.Printf("OCR: schermo %dx%d, glifi gialli %d, glifi orologio %d, cifre imparate %v, CS dal gioco %d, ultima lettura %d", W, H, len(ys), len(clock), ocrTpl.Count, api, ocrValue)
+	}
 	if ocrRes != H {
 		ocrTpl, ocrRes = digitTpl{}, H
 		var saved struct {
@@ -264,6 +280,19 @@ func ocrStep() {
 		val = val*10 + dg
 	}
 	ocrValue, ocrAt = val, time.Now()
+}
+
+var ocrDbgAt time.Time
+
+func saveStrip(buf []byte, w, h int) {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < w*h; i++ {
+		img.Pix[i*4], img.Pix[i*4+1], img.Pix[i*4+2], img.Pix[i*4+3] = buf[i*4+2], buf[i*4+1], buf[i*4], 255
+	}
+	if f, err := os.Create(filepath.Join(dataDir, "ocr_striscia.png")); err == nil {
+		png.Encode(f, img)
+		f.Close()
+	}
 }
 
 func abs(a int) int {
