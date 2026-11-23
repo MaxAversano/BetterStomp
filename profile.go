@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -102,6 +104,7 @@ type Profile struct {
 	SeasonGames   int                    `json:"seasonGames"`
 	SeasonPending int                    `json:"seasonPending"` // partite ancora da analizzare sul server
 	SeasonLocal   bool                   `json:"seasonLocal"`   // solo le ultime 20 partite del client
+	SeasonLoading bool                   `json:"seasonLoading"` // primo caricamento dal server in corso
 	Today         struct {
 		W int `json:"w"`
 		L int `json:"l"`
@@ -437,7 +440,7 @@ func computeDerived(p *Profile) {
 
 func ownProfile(force bool) *Profile {
 	profMu.Lock()
-	if c, ok := profCache["me"]; ok && !force && time.Since(c.at) < 90*time.Second {
+	if c, ok := profCache["me"]; ok && !force && (time.Since(c.at) < 10*time.Second || (!c.p.SeasonLoading && c.p.SeasonPending == 0 && time.Since(c.at) < 90*time.Second)) {
 		profMu.Unlock()
 		return c.p
 	}
@@ -520,6 +523,8 @@ func ownProfile(force bool) *Profile {
 		pos := seasonCache.positions
 		seasonMu.Unlock()
 		applySeasonRoles(p, pos)
+	} else if st := getSettings(); st.RemoteURL != "" && st.RemoteToken != "" {
+		p.SeasonLoading = true // il server risponde tra pochi secondi: niente "ultime 20"
 	} else {
 		p.Season = seasonFromHistory(all, s.Puuid, seasonStart)
 		p.SeasonLocal = true
@@ -761,8 +766,12 @@ func serverSeason(name, tag string, since int64) ([]ChampRow, int, bool) {
 		return nil, 0, false
 	}
 	seasonMu.Lock()
+	if !seasonCache.ok && !seasonDiskTried {
+		seasonDiskTried = true
+		loadSeasonDisk(name, tag)
+	}
 	c := seasonCache
-	fresh := c.ok && (time.Since(c.at) < 90*time.Second || (c.pending == 0 && time.Since(c.at) < 10*time.Minute))
+	fresh := c.ok && (time.Since(c.at) < 20*time.Second || (c.pending == 0 && time.Since(c.at) < 10*time.Minute))
 	if !fresh && !seasonBusy {
 		seasonBusy = true
 		go func() {
@@ -779,7 +788,37 @@ func serverSeason(name, tag string, since int64) ([]ChampRow, int, bool) {
 	return c.champs, c.pending, c.ok
 }
 
-var seasonBusy bool
+var seasonBusy, seasonDiskTried bool
+
+type seasonDisk struct {
+	Champs    []ChampRow     `json:"champs"`
+	Pending   int            `json:"pending"`
+	Positions map[string]int `json:"positions"`
+}
+
+func seasonFile(name, tag string) string {
+	safe := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '_'
+		}
+		return r
+	}, name+"_"+tag)
+	return filepath.Join(statsDir(), "stagione_"+safe+".json")
+}
+
+// ultimi dati stagione salvati: all'avvio si vedono subito, poi si aggiornano dal server
+func loadSeasonDisk(name, tag string) {
+	b, err := os.ReadFile(seasonFile(name, tag))
+	if err != nil {
+		return
+	}
+	var d seasonDisk
+	if json.Unmarshal(b, &d) != nil || len(d.Champs) == 0 {
+		return
+	}
+	seasonCache.champs, seasonCache.pending, seasonCache.positions, seasonCache.ok = d.Champs, d.Pending, d.Positions, true
+	seasonCache.at = time.Time{} // da riaggiornare subito
+}
 
 func fetchServerSeason(s Settings, name, tag string, since int64) {
 	c := struct {
@@ -810,6 +849,9 @@ func fetchServerSeason(s Settings, name, tag string, since int64) {
 	seasonCache.champs, seasonCache.pending, seasonCache.at, seasonCache.ok = r.Champs, r.Pending, time.Now(), true
 	seasonCache.positions = r.Positions
 	seasonMu.Unlock()
+	if b, err := json.Marshal(seasonDisk{r.Champs, r.Pending, r.Positions}); err == nil {
+		os.WriteFile(seasonFile(name, tag), b, 0o644)
+	}
 }
 
 func applySeasonRoles(p *Profile, pos map[string]int) {

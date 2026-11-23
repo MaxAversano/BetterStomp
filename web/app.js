@@ -141,7 +141,7 @@ async function poll(){
   if(c.phase==='ChampSelect' && S.lastPhase!=='ChampSelect' && route()[0]!=='select'){ location.hash='#/select'; }
   if(c.phase!==S.lastPhase && c.phase==='EndOfGame'){ S.profile=null; S.ui.forceProf=true; setTimeout(()=>{ if(route()[0]==='profilo') render(true); }, 4000); }
   S.lastPhase = c.phase;
-  if(c.connected && S.profile && Date.now()-(S._profAt||0) > 120000 && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); } }).finally(()=>S._profLoading=false); }
+  if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:120000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); } }).finally(()=>S._profLoading=false); }
   if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
   renderSide();
   if(route()[0]==='select') updateSelect();
@@ -180,11 +180,11 @@ function renderSide(){
       ${p?`<div class="rkline"><span class="rkph">📅</span><span class="muted sp">Oggi (Solo/Duo)</span><b><span class="good">${p.today.w}V</span> - <span class="bad">${p.today.l}S</span></b></div>`:''}</div>`;
     const champsSrc = p?.season || [];
     if(p && !champsSrc.length){
-      h += `<div class="card side-card"><h3>Rendimento campioni</h3><div class="small muted" style="margin-top:6px">${p.seasonLocal?'Nessuna Solo/Duo tra le ultime 20 partite del client. Collega il server statistiche per vedere tutta la stagione.':'Sto analizzando le tue partite Solo/Duo della stagione…'}${p.seasonPending?` (${p.seasonPending} in arrivo)`:''}</div></div>`;
+      h += `<div class="card side-card"><h3>Rendimento campioni</h3><div class="small muted" style="margin-top:6px">${p.seasonLocal?'Nessuna Solo/Duo tra le ultime 20 partite del client. Collega il server statistiche per vedere tutta la stagione.':'Carico le tue partite Solo/Duo dall\'inizio della stagione…'}${p.seasonPending?` (${p.seasonPending} in arrivo)`:''}</div></div>`;
     }
     if(champsSrc?.length){
       const list = champsSrc.slice(0, more.champs?12:4);
-      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.seasonLocal?'· Solo/Duo · ultime 20 partite del client':`· stagione Solo/Duo · ${p.seasonGames} partite${p.seasonPending?` (${p.seasonPending} in arrivo)`:''}`}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
+      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.seasonLocal?'· Solo/Duo · ultime 20 partite del client':`· stagione Solo/Duo · ${p.seasonGames} partite${p.seasonPending?` · altre ${p.seasonPending} in caricamento`:''}`}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
         <div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny dim">${x.kda.toFixed(1).replace('.',',')} KDA</div></div>
         <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
         ${champsSrc.length>4?`<button class="showmore" data-act="sidemore" data-k="champs">${more.champs?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;
@@ -339,12 +339,12 @@ function drawChampGrid(soft){
 async function pageChampion(m, r, soft){
   const c = S.champList.find(x=>x.id===r[1]); if(!c){ location.hash='#/campioni'; return; }
   const key = +c.key, u = S.ui;
-  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; }
+  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; u.abSel=0; u.runeAlt=false; u.runeTree=false; }
   u.chMode = u.chMode||u.cmode||S.settings.defaultMode||'ranked'; u.chTier = u.chTier||u.ctier||'auto';
   if(soft && !$('#chbody')) soft = false;
   if(!soft) m.innerHTML = `<div class="page"><div class="champhero"><div class="bg" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${c.id}_0.jpg')"></div>
     <div class="in"><img class="ic xl" src="${cImg(key)}"><div class="sp"><div class="kicker" style="color:#c6cbe6">${esc(c.title)}</div><h1 style="font-size:34px">${esc(c.name)}</h1>
-    <div class="row wrap mt" id="chstats"></div></div>
+    <div class="htiles" id="chstats"></div></div>
     <div class="col" style="align-items:flex-end"><a class="btn ghost sm" href="#/campioni">← Tutti i campioni</a></div></div></div>
     <div class="filters mt"><select data-ui="chMode">${opt(MODES,u.chMode)}</select><select data-ui="chTier">${tierOptions(u.chTier)}</select><div class="chips" id="chpos"></div><span class="sp"></span>
       <span class="small muted" id="chsrc"></span></div>
@@ -357,34 +357,75 @@ async function pageChampion(m, r, soft){
   u.chData = data; u.chKey = key; u.chDetail = {id:c.id, d:detail};
   if(u.variant >= (data.build.variants||[]).length) u.variant = 0;
   const b = data.build;
-  put($('#chstats'), b.games ? `${tierBadge(b.tierLabel)}<span class="badge">${pct(b.winRate)} WR</span><span class="badge">${pct(b.pickRate)} pick</span><span class="badge">${pct(b.banRate)} ban</span><span class="badge">${num(b.games)} partite</span>`
+  const tile = (k,v,cls='') => `<div class="htile"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  put($('#chstats'), b.games ? `${b.tierLabel?`<div class="htile tierT"><div class="k">Tier</div><div class="v">${tierBadge(b.tierLabel)}</div></div>`:''}${tile('Win rate',pct(b.winRate),b.winRate>=.5?'good':'bad')}${tile('Pick rate',pct(b.pickRate))}${tile('Ban rate',pct(b.banRate))}${tile('Partite',num(b.games))}${b.kda&&b.kda[1]?tile('KDA',`${b.kda[0].toFixed(1)} / ${b.kda[1].toFixed(1)} / ${b.kda[2].toFixed(1)}`):''}`
     : `<span class="badge">Nessuna statistica ancora per questo filtro</span>`, soft);
   put($('#chpos'), isPos(u.chMode) ? (b.positions||[]).filter(p=>p.position!=='ALL'&&p.share>=0.04).map(p=>`<span class="chip ${b.position===p.position?'on':''}" data-act="chpos" data-p="${p.position}">${POS[p.position]} <span class="tiny">${pct(p.share,0)}</span></span>`).join('') : '', soft);
-  put($('#chsrc'), b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · campione ampliato a tutti i ranghi':''}` : '', soft);
-  const prof = S.profile?.champs?.find(x=>x.champion===key);
-  put($('#chbody'), `<div class="grid2" style="grid-template-columns:1.4fr 1fr">
-    <div class="col gap16">
-      <div class="card"><div class="ctitle"><h2>Build</h2>${b.personal?'<span class="badge goldc">Build personale</span>':''}<span class="sp"></span>
-        <button class="btn sm" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>Importa nel client</button>
-        <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'Modifica build personale'}</button></div>
-        <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div>
-        ${b.skillSeq?`<div class="blocklbl"><span>Ordine abilità completo</span><span class="small muted">${pct(b.skillSeqWR)} WR · ${num(b.skillSeqN)} partite</span></div>${skillGridHTML(b.skillSeq)}`:''}</div>
-      <div class="card"><h2>Abilità</h2>${detail? abilitiesHTML(detail.data[c.id]) : '<div class="muted">Non disponibili.</div>'}</div>
-    </div>
-    <div class="col gap16">
-      <div class="card"><h2>Rune</h2>${runesHTML(b.runes)}${b.runes?`<div class="row mt"><span class="small muted sp">${esc(b.runes.source||'')}${b.runes.games?` · ${pct(b.runes.winRate)} WR su ${num(b.runes.games)}`:''}</span><button class="btn ghost sm" data-act="saverunes">Salva come personali</button></div>`:''}
-        ${b.runesAlt?`<details class="mt"><summary class="small muted" style="cursor:pointer">Alternativa (${pct(b.runesAlt.winRate)} WR)</summary><div class="mt">${runesHTML(b.runesAlt)}</div></details>`:''}</div>
-      <div class="card"><h2>Matchup</h2>${pairsHTML('Più facili',b.best,'good')}${pairsHTML('Più difficili',b.worst,'bad')}${pairsHTML('Sinergie migliori',b.synergy,'good')}
+  put($('#chsrc'), b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
+  const prof = (S.profile?.season||[]).find(x=>x.champion===key) || S.profile?.champs?.find(x=>x.champion===key);
+  put($('#chbody'), `<div class="card cbcard"><div class="ctitle"><h2>Build ${b.personal?'<span class="badge goldc">Personale</span>':''}</h2><span class="sp"></span>
+        <button class="btn sm" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>⇩ Importa nel client</button>
+        <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'✎ Build personale'}</button></div>
+        <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div></div>
+    <div class="grid3 mt16">
+      <div class="card"><h2>Matchup</h2>${matchList('Vince contro',b.best,'good')}${matchList('Soffre contro',b.worst,'bad')}
         ${!b.best?.length&&!b.worst?.length?'<div class="muted small">Servono più partite analizzate per i matchup.</div>':''}</div>
+      <div class="card"><h2>Sinergie</h2>${matchList('Meglio in squadra con',b.synergy,'good')||'<div class="muted small">Servono più partite analizzate.</div>'}</div>
       <div class="card"><h2>Pro e Master+</h2><div class="col gap6">${proRowsHTML((b.proGames||[]).slice(0,6), false)}</div></div>
-      ${prof?`<div class="card"><h2>Le tue partite</h2><div class="stats"><div class="stat"><div class="k">Partite</div><div class="v">${prof.games}</div></div>
+    </div>
+    <div class="grid2 mt16" style="grid-template-columns:${prof?'2fr 1fr':'1fr'}">
+      <div class="card"><h2>Abilità</h2>${detail? abilitiesHTML(detail.data[c.id]) : '<div class="muted">Non disponibili.</div>'}</div>
+      ${prof?`<div class="card"><h2>Le tue partite <span class="tiny dim">Solo/Duo</span></h2><div class="stats"><div class="stat"><div class="k">Partite</div><div class="v">${prof.games}</div></div>
         <div class="stat"><div class="k">Win rate</div><div class="v ${prof.wins/prof.games>=.5?'good':'bad'}">${pct(prof.wins/prof.games,0)}</div></div><div class="stat"><div class="k">KDA</div><div class="v">${prof.kda.toFixed(2).replace('.',',')}</div></div></div></div>`:''}
-      <div class="card flat"><div class="kicker mb">Approfondisci</div><div class="row wrap">
-        ${[['u.gg',`https://u.gg/lol/champions/${c.id.toLowerCase()}/build`],['op.gg',`https://op.gg/lol/champions/${c.id.toLowerCase()}/build`],['lolalytics',`https://lolalytics.com/lol/${c.id.toLowerCase()}/build/`]].map(([n,l])=>`<a class="btn ghost sm" href="${l}" target="_blank">${n} ↗</a>`).join('')}</div></div>
-    </div></div>`, soft);
+    </div>
+    <div class="row wrap mt16 extlinks"><span class="tiny dim">Confronta su</span>${[['u.gg',`https://u.gg/lol/champions/${c.id.toLowerCase()}/build`],['op.gg',`https://op.gg/lol/champions/${c.id.toLowerCase()}/build`],['lolalytics',`https://lolalytics.com/lol/${c.id.toLowerCase()}/build/`]].map(([n,l])=>`<a class="btn ghost sm" href="${l}" target="_blank">${n} ↗</a>`).join('')}</div>`, soft);
 }
 pageChampion.soft = true;
 
+/* ---- pagina campione: vista build ---- */
+function itCell(id, wr, cls=''){
+  if(!id) return '';
+  return `<div class="it ${cls}" title="${esc(S.items[id]?.name||'')}"><img src="${iImg(id)}">${wr!=null?`<span class="iwr ${wr>=.5?'good':'bad'}">${pct(wr,0)}</span>`:''}</div>`;
+}
+function runesCompact(r){
+  if(!r || !r.perks?.length) return `<div class="muted small">Nessuna pagina disponibile. Con il client aperto vengono usate le rune consigliate da Riot.</div>`;
+  const p = r.perks, nm = id => esc(S.perk[id]?.name || SHARDS[id]?.[0] || '');
+  const ri = (id, c='') => `<img class="rc-r ${c}" src="${pImg(id)}" title="${nm(id)}" onerror="this.style.visibility='hidden'">`;
+  return `<div class="rc"><div class="rc-main"><img class="rc-key" src="${pImg(p[0])}" title="${nm(p[0])}"><div class="sp"><div class="rc-kn">${nm(p[0])}</div>
+      <div class="tiny dim"><img class="rc-ti" src="${stImg(r.primary)}">${esc(S.style[r.primary]?.name||'')} + <img class="rc-ti" src="${stImg(r.secondary)}">${esc(S.style[r.secondary]?.name||'')}</div></div></div>
+    <div class="rc-rows"><div class="rc-row">${p.slice(1,4).map(x=>ri(x)).join('')}</div><div class="rc-row">${p.slice(4,6).map(x=>ri(x)).join('')}<span class="rc-gap"></span>${p.slice(6,9).map(x=>ri(x,'sh')).join('')}</div></div></div>`;
+}
+function champBuildView(b0, variant){
+  const vs = (!b0.personal && b0.variants) || [];
+  const v = vs[variant];
+  const b = v ? {...b0, core:v.core, situational:v.situational} : b0;
+  const wr = b0.itemWR || {};
+  const tabs = vs.length>1 ? `<div class="vtabs">${vs.map((x,i)=>`<button class="vtab ${i===variant?'on':''}" data-act="variant" data-i="${i}">
+      <div class="vtop"><span class="vn">${esc(x.label||('Build '+(i+1)))}</span><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate)}</b></div>
+      <div class="vimgs">${(x.boots?[x.boots]:[]).concat(x.path.slice(0,3)).map(id=>`<img src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`).join('')}</div>
+      <div class="tiny dim">${num(x.games)} partite · ${pct(x.share,0)} pick</div></button>`).join('')}</div>` : '';
+  const core = (b.core||[]).slice(0,6), extra = (b.core||[]).slice(6).concat(b.situational||[]).filter((id,i,a)=>id && a.indexOf(id)===i && !core.includes(id));
+  const r = b0.runes;
+  const sec = (t, info, body, cls='') => `<div class="cbsec ${cls}"><div class="cbh"><span>${t}</span>${info?`<span class="tiny dim">${info}</span>`:''}</div>${body}</div>`;
+  return `${tabs}
+  <div class="cbgrid">
+    ${sec('Rune', r?.games?`${pct(r.winRate)} WR · ${num(r.games)} partite`:esc(r?.source||''), runesCompact(r)+(r?`<div class="row gap6 mt8">${b0.runesAlt?`<button class="btn ghost xs" data-act="runealt">${S.ui.runeAlt?'Pagina principale':`Alternativa · ${pct(b0.runesAlt.winRate)}`}</button>`:''}<button class="btn ghost xs" data-act="runetree">${S.ui.runeTree?'Nascondi albero':'Albero completo'}</button><button class="btn ghost xs" data-act="saverunes">Salva come personali</button></div>`:'')
+      +(S.ui.runeTree||S.ui.runeAlt?`<div class="mt8">${runesHTML(S.ui.runeAlt&&b0.runesAlt?b0.runesAlt:r)}</div>`:''), 'span2')}
+    ${sec('Incantesimi', b0.spellsWR?pct(b0.spellsWR)+' WR':'', b0.spells?.length?`<div class="row gap8">${b0.spells.map(s=>`<img class="spl" src="${sImg(s)}" title="${esc(S.spells[s]?.name||'')}">`).join('')}</div>`:'<span class="small dim">—</span>')}
+    ${sec('Priorità abilità', b0.skillFirst?`primi livelli ${b0.skillFirst.split('').join(' ')}`:'', b0.skills?`<div class="skprio">${b0.skills.split('>').map((k,i)=>`${i?'<span class="arr">›</span>':''}<span class="skey big k${k}">${k}</span>`).join('')}</div>`:'<span class="small dim">—</span>')}
+  </div>
+  ${sec('Percorso oggetti', v?`${pct(v.winRate)} WR · ${num(v.games)} partite`:'', `<div class="ipath">
+      ${b.starting?.length?`<div class="istart"><div class="tiny dim">Inizio</div><div class="row gap6">${b.starting.map(id=>itCell(id,null,'sm')).join('')}</div></div><span class="parr">›</span>`:''}
+      ${core.length?core.map((id,i)=>`${i?'<span class="parr">›</span>':''}${itCell(id,wr[id],'big')}`).join(''):'<span class="small dim">Nessuna build statistica ancora: creane una personale con “Build personale”.</span>'}</div>`)}
+  ${extra.length?sec('Situazionali', 'win rate quando lo compri', `<div class="isit">${extra.map(id=>itCell(id,wr[id])).join('')}</div>`):''}
+  ${sec('Ordine abilità', b0.skillSeqN?`${pct(b0.skillSeqWR)} WR · ${num(b0.skillSeqN)} partite`:'', skillGridHTML(b0.skillSeq))}`;
+}
+function matchList(t, list, cls){
+  if(!list?.length) return '';
+  return `<div class="cbh mt8"><span>${t}</span></div><div class="mlist">${list.slice(0,6).map(p=>`<div class="mrow" data-act="openchamp" data-id="${champ(p.champion).id}">${ci(p.champion,'s')}
+    <span class="sp nm">${esc(champ(p.champion).name)}</span><span class="mbar"><i class="${cls}" style="width:${Math.round(Math.min(1,Math.max(0,(p.winRate-.35)/.3))*100)}%"></i></span>
+    <b class="${p.winRate>=.5?'good':'bad'} small">${pct(p.winRate)}</b><span class="tiny dim gm">${p.games}</span></div>`).join('')}</div>`;
+}
 function slotsHTML(ids, n, block, editable, wr){
   let h = '';
   for(let i=0;i<n;i++){
@@ -404,6 +445,7 @@ function variantsHTML(b, sel, act){
 }
 function buildHTML(b, personal, variant=0, act='variant'){
   const ed = S.ui.editing && act==='variant';
+  if(act==='variant' && !ed) return champBuildView(b, variant);
   const v = (b.variants||[])[variant];
   if(v && !b.personal) b = {...b, core:v.core, situational:v.situational};
   const src = ed ? (S.ui.edit ||= {starting:[...(personal?.starting||b.starting||[])], core:[...(personal?.core||b.core||[])], situational:[...(personal?.situational||b.situational||[])]}) : b;
@@ -435,9 +477,11 @@ function pairsHTML(t, list, cls){
 function abilitiesHTML(d){
   if(!d) return '';
   const clean = s => esc(String(s||'').replace(/<br\s*\/?>/g,' ').replace(/<[^>]+>/g,''));
-  const rows = [[`${DD}${S.v}/img/passive/${d.passive.image.full}`,'Passiva',d.passive.name,d.passive.description]]
-    .concat(d.spells.map((s,i)=>[`${DD}${S.v}/img/spell/${s.image.full}`,'QWER'[i],s.name,s.description+(s.cooldownBurn?` (Ricarica: ${s.cooldownBurn}s)`:'')]));
-  return rows.map(([img,k,n,desc])=>`<div class="ability"><img src="${img}"><div><b>${k} · ${esc(n)}</b><div class="d">${clean(desc)}</div></div></div>`).join('');
+  const rows = [[`${DD}${S.v}/img/passive/${d.passive.image.full}`,'P',d.passive.name,d.passive.description,'']]
+    .concat(d.spells.map((s,i)=>[`${DD}${S.v}/img/spell/${s.image.full}`,'QWER'[i],s.name,s.description,s.cooldownBurn?`Ricarica ${s.cooldownBurn}s`:'']));
+  const sel = Math.min(S.ui.abSel||0, rows.length-1), [img,k,n,desc,cd] = rows[sel];
+  return `<div class="abtabs">${rows.map((r,i)=>`<button class="abt ${i===sel?'on':''}" data-act="abtab" data-i="${i}"><img src="${r[0]}"><span class="skey k${r[1]}">${r[1]}</span></button>`).join('')}</div>
+    <div class="abdesc"><b>${esc(n)}</b>${cd?`<span class="tiny dim"> · ${cd}</span>`:''}<div class="d">${clean(desc)}</div></div>`;
 }
 
 /* ================= TIER LIST ================= */
@@ -967,9 +1011,12 @@ const actions = {
   sidemore(t){ S.ui.sideMore=S.ui.sideMore||{}; S.ui.sideMore[t.dataset.k]=!S.ui.sideMore[t.dataset.k]; $('#side')._h=''; renderSide(); },
   addpro(){ const l=[...(S.settings.proPlayers||[]),{label:'',riotId:'',region:S.settings.region}]; setSetting('proPlayers',l); drawProList(); },
   delpro(t){ const l=[...(S.settings.proPlayers||[])]; l.splice(+t.dataset.i,1); setSetting('proPlayers',l); drawProList(); },
+  runealt(){ S.ui.runeAlt=!S.ui.runeAlt; refreshEditor(); },
+  runetree(){ S.ui.runeTree=!S.ui.runeTree; refreshEditor(); },
+  abtab(t){ S.ui.abSel=+t.dataset.i; const d=S.ui.chDetail?.d; if(d) t.closest('.card').innerHTML='<h2>Abilità</h2>'+abilitiesHTML(d.data[S.ui.chDetail.id]); },
   variant(t){ S.ui.variant=+t.dataset.i; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.personal, S.ui.variant, 'variant'); },
   editbuild(){ S.ui.editing=!S.ui.editing; S.ui.edit=null; $('#buildbox').innerHTML=buildHTML(S.ui.chData.build, S.ui.chData.hasPersonal?S.ui.chData.personal:null, S.ui.variant, 'variant');
-    document.querySelector('[data-act=editbuild]').textContent = S.ui.editing?'Chiudi editor':'Modifica build personale'; },
+    document.querySelector('[data-act=editbuild]').textContent = S.ui.editing?'Chiudi editor':'✎ Build personale'; },
   pickitem(t,e){ if(e.target.closest('.x')) return; itemPicker(id=>{ const b=t.dataset.b, i=+t.dataset.i; const arr=S.ui.edit[b]; arr[i]=id; S.ui.edit[b]=arr.map(x=>x||0); refreshEditor(); }); },
   clearitem(t){ const b=t.dataset.b, i=+t.dataset.i; S.ui.edit[b].splice(i,1); refreshEditor(); },
   async savebuild(){ const e=S.ui.edit; const cur=S.ui.chData.hasPersonal?S.ui.chData.personal:{};
