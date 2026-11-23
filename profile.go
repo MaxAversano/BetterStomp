@@ -82,21 +82,22 @@ type Roles struct {
 }
 
 type Profile struct {
-	Source   string                 `json:"source"`
-	Name     string                 `json:"name"`
-	Tag      string                 `json:"tag"`
-	Level    int                    `json:"level"`
-	Icon     int                    `json:"icon"`
-	Puuid    string                 `json:"puuid"`
-	Region   string                 `json:"region"`
-	Ranked   map[string]RankedQueue `json:"ranked"`
-	Mastery  []MasteryRow           `json:"mastery"`
-	Matches  []PMatch               `json:"matches"`
-	Roles    Roles                  `json:"roles"`
-	Premades []Premade              `json:"premades"`
-	Champs   []ChampRow             `json:"champs"`
-	Season   []ChampRow             `json:"season"` // rendimento della stagione (classificate) dal client
-	Today    struct {
+	Source      string                 `json:"source"`
+	Name        string                 `json:"name"`
+	Tag         string                 `json:"tag"`
+	Level       int                    `json:"level"`
+	Icon        int                    `json:"icon"`
+	Puuid       string                 `json:"puuid"`
+	Region      string                 `json:"region"`
+	Ranked      map[string]RankedQueue `json:"ranked"`
+	Mastery     []MasteryRow           `json:"mastery"`
+	Matches     []PMatch               `json:"matches"`
+	Roles       Roles                  `json:"roles"`
+	Premades    []Premade              `json:"premades"`
+	Champs      []ChampRow             `json:"champs"`
+	Season      []ChampRow             `json:"season"` // rendimento della stagione (classificate) dal client
+	SeasonGames int                    `json:"seasonGames"`
+	Today       struct {
 		W int `json:"w"`
 		L int `json:"l"`
 	} `json:"today"`
@@ -460,8 +461,42 @@ func ownProfile(force bool) *Profile {
 			Games []lcuGame `json:"games"`
 		} `json:"games"`
 	}
-	lcu.getJSON(fmt.Sprintf("/lol-match-history/v1/products/lol/%s/matches?begIndex=0&endIndex=60", s.Puuid), &hist)
+	// il client restituisce al massimo 20 partite per richiesta: scorro le pagine
+	// fino all'inizio della stagione (1° gennaio) o a 400 partite
+	now := time.Now()
+	seasonStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()).UnixMilli()
+	var all []lcuGame
+	seenID := map[int64]bool{}
+	for beg := 0; beg < 400; beg += 20 {
+		var page struct {
+			Games struct {
+				Games []lcuGame `json:"games"`
+			} `json:"games"`
+		}
+		if lcu.getJSON(fmt.Sprintf("/lol-match-history/v1/products/lol/%s/matches?begIndex=%d&endIndex=%d", s.Puuid, beg, beg+20), &page) != nil {
+			break
+		}
+		added, oldest := 0, int64(1<<62)
+		for _, g := range page.Games.Games {
+			if !seenID[g.GameID] {
+				seenID[g.GameID] = true
+				all = append(all, g)
+				added++
+			}
+			if g.GameCreation < oldest {
+				oldest = g.GameCreation
+			}
+		}
+		if added == 0 || oldest < seasonStart {
+			break
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].GameCreation > all[j].GameCreation })
+	hist.Games.Games = all
 	for i, g := range hist.Games.Games {
+		if i >= 60 {
+			break
+		}
 		if i < 25 {
 			var full lcuGame
 			if lcu.getJSON(fmt.Sprintf("/lol-match-history/v1/games/%d", g.GameID), &full) == nil && len(full.Participants) > 1 {
@@ -473,6 +508,13 @@ func ownProfile(force bool) *Profile {
 	sort.Slice(p.Matches, func(i, j int) bool { return p.Matches[i].Start > p.Matches[j].Start })
 	computeDerived(p)
 	p.Season = seasonChamps(s.Puuid)
+	if len(p.Season) == 0 {
+		p.Season = seasonFromHistory(all, s.Puuid, seasonStart)
+	}
+	p.SeasonGames = 0
+	for _, c := range p.Season {
+		p.SeasonGames += c.Games
+	}
 	profMu.Lock()
 	profCache["me"] = struct {
 		p  *Profile
@@ -552,7 +594,7 @@ func searchProfile(riotID, region string) *Profile {
 	return p
 }
 
-// statistiche di tutta la stagione dal client (lol-career-stats), solo partite classificate
+// statistiche di tutta la stagione dal client (lol-career-stats), solo Solo/Duo
 func seasonChamps(puuid string) []ChampRow {
 	var games []map[string]any
 	if lcu.getJSON("/lol-career-stats/v1/summoner-games/"+puuid, &games) != nil || len(games) == 0 {
@@ -603,8 +645,8 @@ func seasonChamps(puuid string) []ChampRow {
 			continue
 		}
 		q, _ := g["queueType"].(string)
-		if !strings.HasPrefix(q, "rank") {
-			continue
+		if q != "rank5solo" && q != "RANKED_SOLO_5x5" {
+			continue // solo Solo/Duo
 		}
 		st := find(g["stats"])
 		if st == nil {
@@ -643,4 +685,47 @@ func maxF(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// rendimento stagionale ricavato dalla cronologia del client (Solo/Duo dal 1° gennaio)
+func seasonFromHistory(games []lcuGame, puuid string, since int64) []ChampRow {
+	type acc struct {
+		g, w        int
+		k, d, a, cs float64
+		mins        float64
+	}
+	by := map[int]*acc{}
+	for _, g := range games {
+		if g.GameCreation < since || g.QueueID != 420 {
+			continue
+		}
+		m := convertLegacy(g, puuid)
+		if m.Remake || m.Me.Champ == 0 {
+			continue
+		}
+		a := by[m.Me.Champ]
+		if a == nil {
+			a = &acc{}
+			by[m.Me.Champ] = a
+		}
+		a.g++
+		if m.Me.Win {
+			a.w++
+		}
+		a.k += float64(m.Me.K)
+		a.d += float64(m.Me.D)
+		a.a += float64(m.Me.A)
+		a.cs += float64(m.Me.CS)
+		a.mins += float64(m.Duration) / 60
+	}
+	var out []ChampRow
+	for c, a := range by {
+		r := ChampRow{Champion: c, Games: a.g, Wins: a.w, KDA: (a.k + a.a) / maxF(1, a.d)}
+		if a.mins > 0 {
+			r.CSMin = a.cs / a.mins
+		}
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Games > out[j].Games })
+	return out
 }

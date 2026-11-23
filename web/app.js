@@ -180,7 +180,7 @@ function renderSide(){
     const champsSrc = p?.season?.length ? p.season : p?.champs;
     if(champsSrc?.length){
       const list = champsSrc.slice(0, more.champs?12:4);
-      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.season?.length?'· stagione (classificate)':'· ultime partite'}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
+      h += `<div class="card side-card"><h3>Rendimento campioni <span class="tiny dim">${p.season?.length?`· stagione Solo/Duo · ${p.seasonGames} partite`:'· ultime partite'}</span></h3>${list.map(x=>{ const wr=x.wins/x.games; return `<div class="pl2" data-act="openchamp" data-id="${champ(x.champion).id}"><img src="${cImg(x.champion)}">
         <div class="sp"><b>${esc(champ(x.champion).name)}</b><div class="tiny dim">${x.kda.toFixed(1).replace('.',',')} KDA</div></div>
         <div class="right"><b class="${wr>=.5?'good':'bad'} small">${pct(wr)} WR</b><div class="tiny dim">${x.wins}V - ${x.games-x.wins}S</div></div></div>`; }).join('')}
         ${champsSrc.length>4?`<button class="showmore" data-act="sidemore" data-k="champs">${more.champs?'Mostra meno ▴':'Mostra altro ▾'}</button>`:''}</div>`;

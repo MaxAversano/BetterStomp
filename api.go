@@ -24,6 +24,18 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, map[string]string{"app": "BetterStomp"})
 	})
 
+	// diagnostica: risposta grezza del client di League (solo dal PC locale)
+	mux.HandleFunc("/api/debug/lcu", func(w http.ResponseWriter, r *http.Request) {
+		b, code, err := lcu.req("GET", r.URL.Query().Get("path"), nil)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(code)
+		w.Write(b)
+	})
+
 	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
 		lastPing.Store(time.Now().Unix())
 		jsonOut(w, map[string]bool{"ok": true})
