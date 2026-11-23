@@ -192,58 +192,53 @@ func objIcon(name string) (string, string) {
 	case strings.Contains(n, "larve"):
 		return "grub", "#A98BFF"
 	case strings.Contains(n, "atakhan"):
-		return "", "#FF5C5C"
+		return "atakhan", "#FF5C5C"
 	}
 	return "", "#38D6FF"
 }
 
+// icone a colori della minimappa di gioco (CommunityDragon)
 func objIconURL(kind string) string {
-	base := "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-match-history/global/default/"
-	if kind == "grub" {
-		return base + "right_icons_grub.png"
-	}
-	return base + kind + "-100.png"
+	file := map[string]string{"dragon": "dragon", "elder": "dragon_elder", "baron": "baron", "herald": "riftherald", "grub": "grub", "atakhan": "atakhan_v"}[kind]
+	return "https://raw.communitydragon.org/latest/game/assets/ux/minimap/icons/" + file + ".png"
 }
 
-// sagoma dell'icona (solo trasparenza) colorata e ridimensionata, sopra lo sfondo
-func tintedBits(kind string, size int, col, bg uint32) []byte {
-	key := "obj:" + kind + "|" + itoa(size) + "|" + itoa(int(col))
+// icona a colori ridimensionata, fusa sopra lo sfondo del cerchio
+func iconBits(kind string, size int, bg uint32) []byte {
+	key := "obj2:" + kind + "|" + itoa(size)
 	portraitMu.Lock()
 	if px, ok := portraitPix[key]; ok {
 		portraitMu.Unlock()
 		return px
 	}
 	portraitMu.Unlock()
-	src := remoteImage("obj:"+kind, objIconURL(kind), filepath.Join(dataDir, "icone", kind+".png"))
+	src := remoteImage("obj2:"+kind, objIconURL(kind), filepath.Join(dataDir, "icone", "mm_"+kind+".png"))
 	if src == nil {
 		return nil
 	}
 	b := src.Bounds()
 	px := make([]byte, size*size*4)
-	cr, cg, cb := float64(col&0xFF), float64(col>>8&0xFF), float64(col>>16&0xFF)
 	br, bgg, bb := float64(bg&0xFF), float64(bg>>8&0xFF), float64(bg>>16&0xFF)
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
-			var a float64
-			for sy := 0; sy < 2; sy++ {
-				for sx := 0; sx < 2; sx++ {
-					fx := (float64(x) + 0.25 + 0.5*float64(sx)) * float64(b.Dx()) / float64(size)
-					fy := (float64(y) + 0.25 + 0.5*float64(sy)) * float64(b.Dy()) / float64(size)
-					_, _, _, al := src.At(b.Min.X+int(fx), b.Min.Y+int(fy)).RGBA()
-					a += float64(al) / 65535
+			var r, g, bl, a float64
+			for sy := 0; sy < 3; sy++ {
+				for sx := 0; sx < 3; sx++ {
+					fx := (float64(x) + (float64(sx)+0.5)/3) * float64(b.Dx()) / float64(size)
+					fy := (float64(y) + (float64(sy)+0.5)/3) * float64(b.Dy()) / float64(size)
+					c := color.NRGBAModel.Convert(src.At(b.Min.X+int(fx), b.Min.Y+int(fy))).(color.NRGBA)
+					al := float64(c.A) / 255
+					r += float64(c.R) * al
+					g += float64(c.G) * al
+					bl += float64(c.B) * al
+					a += al
 				}
 			}
-			a /= 4
-			// l'icona è un disco pieno con la sagoma "bucata": la inverto per avere la sagoma colorata
-			if math.Hypot(float64(x)-float64(size-1)/2, float64(y)-float64(size-1)/2) < float64(size)*0.44 {
-				a = 1 - a
-			} else {
-				a = 0
-			}
+			r, g, bl, a = r/9, g/9, bl/9, a/9
 			i := (y*size + x) * 4
-			px[i] = byte(cb*a + bb*(1-a))
-			px[i+1] = byte(cg*a + bgg*(1-a))
-			px[i+2] = byte(cr*a + br*(1-a))
+			px[i] = byte(math.Min(255, bl+bb*(1-a)))
+			px[i+1] = byte(math.Min(255, g+bgg*(1-a)))
+			px[i+2] = byte(math.Min(255, r+br*(1-a)))
 		}
 	}
 	portraitMu.Lock()
@@ -256,9 +251,9 @@ func drawObjIcon(hdc uintptr, name string, r rect) {
 	kind, col := objIcon(name)
 	bg := rgb("#24202A")
 	roundRect(hdc, r, r.r-r.l, bg, rgb(col))
-	in := int((r.r - r.l) * 92 / 100)
+	in := int((r.r - r.l) * 80 / 100)
 	if kind != "" {
-		if px := tintedBits(kind, in, uint32(rgb(col)), uint32(bg)); px != nil {
+		if px := iconBits(kind, in, uint32(bg)); px != nil {
 			off := (r.r - r.l - int32(in)) / 2
 			blitBGRA(hdc, r.l+off, r.t+off, in, px)
 			return
