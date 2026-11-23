@@ -1492,6 +1492,9 @@ func (e *Engine) ChampionStats(champ int, mode, tf, pos string) BuildResult {
 	usedLead := map[int]bool{}
 	addVariant := func(bt int, path []int, st *Stat, ks int) {
 		v := BuildVariant{Path: path, Boots: bt, Games: st.N, WinRate: float64(st.W) / float64(st.N), Share: float64(st.N) / math.Max(1, float64(tot))}
+		if v.Share > 1 || st.N > tot { // build ricavate dagli oggetti dell'archivio: quota sulle partite del campione
+			v.Share = math.Min(1, float64(st.N)/math.Max(1, float64(a.N)))
+		}
 		v.Runes = runesFor(path[0], ks)
 		if v.Runes == nil && ks == 0 {
 			v.Runes = r.Runes

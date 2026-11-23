@@ -404,16 +404,8 @@ func buildOverlayModel(preview bool) OverlayModel {
 	live.mu.RLock()
 	tabNow := live.tabHeld
 	live.mu.RUnlock()
-	cardOn := o.CS.On && me != nil && !o.Classic && !o.Compact && (o.BenchAlways || tabNow || preview)
 	if o.CS.On && me != nil && (o.BenchAlways || tabNow || preview) {
-		var objForCard []OLine
-		if cardOn {
-			objForCard = objLines
-		}
-		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, objForCard))
-	}
-	if cardOn {
-		objLines = nil // i timer sono già nella scheda
+		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, nil))
 	}
 	// notifiche obiettivi: promemoria prima dello spawn e avviso quando compare
 	if o.Notify.On && !aram {
@@ -464,7 +456,11 @@ func buildOverlayModel(preview bool) OverlayModel {
 		}
 	}
 	if len(objLines) > 0 {
-		m.Widgets = append(m.Widgets, OWidget{ID: "objectives", Key: "objectives", X: o.Objectives.X, Y: o.Objectives.Y, Title: "OBIETTIVI", Accent: colAccent, Width: 170, Lines: objLines, Icons: true, Locked: o.Objectives.Locked})
+		ow := OWidget{ID: "objectives", Key: "objectives", X: o.Objectives.X, Y: o.Objectives.Y, Title: "OBIETTIVI", Accent: colAccent, Width: 170, Lines: objLines, Icons: true, Locked: o.Objectives.Locked}
+		if !o.Classic && !o.Compact { // stesso stile della scheda, ma riquadro separato da spostare dove vuoi
+			ow.Card, ow.Lines, ow.Title = &OCard{Objs: objLines}, nil, ""
+		}
+		m.Widgets = append(m.Widgets, ow)
 	}
 
 	if preview && baronBuffEnd == 0 {

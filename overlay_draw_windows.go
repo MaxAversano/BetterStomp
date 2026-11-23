@@ -273,9 +273,16 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 	csH := sc(46)
 	rowH := sc(20)
 	objH := sc(44)
+	onlyObjs := c.KDA == "" // riquadro con i soli timer degli obiettivi
+	if onlyObjs {
+		topH, csH = 0, 0
+	}
 	h := pad + topH + csH + rowH*int32(len(c.Rows)) + pad
 	if len(c.Objs) > 0 {
-		h += sc(12) + objH*int32(len(c.Objs))
+		h += objH * int32(len(c.Objs))
+		if !onlyObjs {
+			h += sc(12)
+		}
 	}
 	if w.Anchor == "center" {
 		x -= width / 2
@@ -289,31 +296,37 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 	right := x + width - pad
 	cy := y + pad
 	tx := left + sc(14)
-	drawText(hdc, "KDA", rect{tx, cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
-	drawText(hdc, c.KDA, rect{tx, cy + sc(18), right, cy + sc(46)}, label, font(int(18*k+0.5), true), dtLeft)
+	if !onlyObjs {
+		drawText(hdc, "KDA", rect{tx, cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
+		drawText(hdc, c.KDA, rect{tx, cy + sc(18), right, cy + sc(46)}, label, font(int(18*k+0.5), true), dtLeft)
+	}
 	var icons []iconHit
-	if w.Icons && interactive { // lucchetto / impostazioni / chiudi solo quando l'overlay è cliccabile
-		is := sc(15)
-		ix := right - is
-		sym := symFont(int(10*k + 0.5))
-		lockTxt, lockCol := "🔓", muted
-		if w.Locked {
-			lockTxt, lockCol = "🔒", rgb("#38D6FF")
-		}
-		for _, ic := range []struct {
-			a, t string
-			col  uintptr
-		}{{"close", "✕", muted}, {"gear", "⚙", muted}, {"lock", lockTxt, lockCol}} {
-			ir := rect{ix, y + sc(6), ix + is, y + sc(6) + is}
-			drawText(hdc, ic.t, ir, ic.col, sym, dtCenter)
-			icons = append(icons, iconHit{w.Key, ic.a, rect{ir.l - 2, ir.t - 2, ir.r + 2, ir.b + 2}})
-			ix -= is + sc(4)
+	{
+		if w.Icons && interactive { // lucchetto / impostazioni / chiudi solo quando l'overlay è cliccabile
+			is := sc(15)
+			ix := right - is
+			sym := symFont(int(10*k + 0.5))
+			lockTxt, lockCol := "🔓", muted
+			if w.Locked {
+				lockTxt, lockCol = "🔒", rgb("#38D6FF")
+			}
+			for _, ic := range []struct {
+				a, t string
+				col  uintptr
+			}{{"close", "✕", muted}, {"gear", "⚙", muted}, {"lock", lockTxt, lockCol}} {
+				ir := rect{ix, y + sc(6), ix + is, y + sc(6) + is}
+				drawText(hdc, ic.t, ir, ic.col, sym, dtCenter)
+				icons = append(icons, iconHit{w.Key, ic.a, rect{ir.l - 2, ir.t - 2, ir.r + 2, ir.b + 2}})
+				ix -= is + sc(4)
+			}
 		}
 	}
 	cy += topH
-	drawText(hdc, "CS", rect{left + sc(14), cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
-	drawText(hdc, c.CS, rect{left + sc(14), cy + sc(18), left + sc(80), cy + csH}, rgb(c.CSColor), font(int(18*k+0.5), true), dtLeft)
-	drawText(hdc, c.CSSub, rect{left + sc(70), cy + sc(18), right, cy + csH}, muted, font(int(10.5*k+0.5), false), dtRight)
+	if !onlyObjs {
+		drawText(hdc, "CS", rect{left + sc(14), cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
+		drawText(hdc, c.CS, rect{left + sc(14), cy + sc(18), left + sc(80), cy + csH}, rgb(c.CSColor), font(int(18*k+0.5), true), dtLeft)
+		drawText(hdc, c.CSSub, rect{left + sc(70), cy + sc(18), right, cy + csH}, muted, font(int(10.5*k+0.5), false), dtRight)
+	}
 	cy += csH
 	for _, l := range c.Rows {
 		ef := font(int(11.5*k+0.5), false)
@@ -327,10 +340,12 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 		drawText(hdc, l.Text, rect{left + sc(14), cy, right, cy + rowH}, muted, font(int(11.5*k+0.5), true), dtLeft)
 		cy += rowH
 	}
-	if len(c.Objs) > 0 {
+	if len(c.Objs) > 0 && !onlyObjs {
 		cy += sc(6)
 		fillRect(hdc, rect{x + 1, cy, x + width - 1, cy + 1}, rgb("#2C2F3A"))
 		cy += sc(6)
+	}
+	if len(c.Objs) > 0 {
 		for _, o := range c.Objs {
 			is := sc(34)
 			ir := rect{left + sc(2), cy + (objH-is)/2, left + sc(2) + is, cy + (objH-is)/2 + is}
