@@ -91,7 +91,7 @@ function setSetting(path, value){
 function applyTheme(){
   const s = S.settings||{};
   document.body.classList.toggle('light', s.theme==='light');
-  document.body.classList.toggle('premium', !!s.premium);
+  document.body.classList.add('premium');
   document.body.classList.toggle('noanim', s.animations===false);
   const tb=document.getElementById('themebtn'); if(tb) tb.textContent = s.theme==='light' ? '☾' : '☀';
 }
@@ -175,7 +175,6 @@ function renderSide(){
       <div><div class="name">${esc(s.gameName)} <span class="dim">#${esc(s.tagLine)}</span></div>
       <div class="tiny muted">${p? (p.roles.enough? 'Ruolo: '+POS[p.roles.main]+(p.roles.second?' / '+POS[p.roles.second]:'') : `Ruolo: servono 20 partite (${p.roles.games}/20)`) : 'Carico il profilo…'}</div></div></div>`;
     if(p) h += recentStrip(p);
-    h += `<div class="ad side-ad">Spazio pubblicitario<br>300 × 250</div>`;
     h += `<div class="card side-card">${rankLine('Classificata Solo/Duo', c.ranked?.RANKED_SOLO_5x5)}${rankLine('Classificata Flex', c.ranked?.RANKED_FLEX_SR)}
       ${p?`<div class="rkline"><span class="rkph">📅</span><span class="muted sp">Oggi (Solo/Duo)</span><b><span class="good">${p.today.w}V</span> - <span class="bad">${p.today.l}S</span></b></div>`:''}</div>`;
     if(p?.champs?.length){
@@ -194,8 +193,7 @@ function renderSide(){
     }
   } else {
     h += `<div class="card acc"><img class="welcome-logo" src="logo.png" alt="BetterStomp"><div class="name">Benvenuto</div>
-      <p class="muted small">Apri il client di League of Legends: BetterStomp lo rileva da solo e mostra qui il riepilogo del tuo account.</p></div>
-      <div class="ad side-ad">Spazio pubblicitario<br>300 × 250</div>`;
+      <p class="muted small">Apri il client di League of Legends: BetterStomp lo rileva da solo e mostra qui il riepilogo del tuo account.</p></div>`;
   }
   const e = S.st?.engine;
   if(e){
@@ -204,7 +202,6 @@ function renderSide(){
       : `<div class="row" style="margin-top:8px"><span class="dot ${e.running&&!e.error?'on':''}"></span><b>${num(e.total+(e.remote||0))}</b><span class="muted small">partite · patch ${esc(e.patch||'-')}</span></div>${e.hasRemote?`<div class="tiny ${e.remoteErr?'bad':'dim'}" style="margin-top:4px">${e.remoteErr?esc(e.remoteErr):`di cui ${num(e.remote||0)} dal server`}</div>`:''}
          ${e.error?`<div class="small bad mt">${esc(e.error)}</div>`:''}`}</div>`;
   }
-  h += `<a class="premcta" href="#/premium"><span class="small">Niente pubblicità</span><b>Passa a BetterStomp Premium</b></a>`;
   if(el._h !== h){ put(el, h, !!el._h); el._h = h; }
 }
 
@@ -214,7 +211,7 @@ function render(soft){
   const r = route();
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on', a.dataset.p===r[0] || (r[0]==='campione'&&a.dataset.p==='campioni')));
   const m = $('#main');
-  const pages = {profilo:pageProfile, campioni:pageChampions, campione:pageChampion, tier:pageTier, select:pageSelect, patch:pagePatch, overlay:pageOverlay, streaming:pageStreaming, premium:pagePremium, impostazioni:pageSettings};
+  const pages = {profilo:pageProfile, campioni:pageChampions, campione:pageChampion, tier:pageTier, select:pageSelect, patch:pagePatch, overlay:pageOverlay, streaming:pageStreaming, impostazioni:pageSettings};
   if(soft && !(pages[r[0]]||pageProfile).soft) return;
   (pages[r[0]]||pageProfile)(m, r, soft);
   if(!soft) m.scrollTop = 0;
@@ -297,8 +294,7 @@ function profileTab(p){
         <div class="row gap6 mt" style="margin-top:6px">${me.spells.map(s=>s?`<img class="ic xs" src="${sImg(s)}">`:'').join('')}</div></div>
       <div><div class="b" style="font-size:16px">${me.k} / <span class="bad">${me.d}</span> / ${me.a}</div><div class="small muted">${((me.k+me.a)/Math.max(1,me.d)).toFixed(2).replace('.',',')} KDA · ${me.cs} CS (${(me.cs/mins).toFixed(1).replace('.',',')})</div></div>
       <div class="items">${me.items.map(x=>x?`<img src="${iImg(x)}" title="${esc(S.items[x]?.name||'')}">`:'<span class="eslot"></span>').join('')}</div>
-      <div class="row gap6"><button class="btn ghost sm" data-act="analyze" data-i="${i}">Analizza</button>
-        <button class="coach" data-act="coach"><span class="sparkle">✦</span> Coach AI</button></div>
+      <div class="row gap6"><button class="btn ghost sm" data-act="analyze" data-i="${i}">Analizza</button></div>
       <div class="analysis" id="an${i}" style="display:${S.ui.openAn?.[g.id]?'block':'none'}">${S.ui.openAn?.[g.id]?analysisHTML(g):''}</div></div>`;
   }).join('');
 }
@@ -696,56 +692,75 @@ function drawPatch(){
   el.innerHTML = sec('Campioni', rep.champions) + sec('Oggetti', rep.items) + sec('Altre modifiche', rep.other) || `<div class="card mt"><div class="empty">Nessun risultato.</div></div>`;
 }
 
-/* ================= OVERLAY ================= */
-const WIDGETS = [['cs.on','Benchmark','CSM, GPM, KP, KDA e livello: il tuo valore / la media dell\'elo scelto, aggiornati due volte al secondo'],['showKP','Partecipazione alle uccisioni (KP)','Riga KP nel benchmark'],
-  ['compact','Versione riassunta','Il benchmark su una riga (anche con Ctrl+Shift+C in gioco)'],['objectives.on','Timer obiettivi','Drago, Larve, Araldo, Atakhan, Barone (dagli eventi di gioco)'],
-  ['camps.on','Timer campi della giungla','Blu, Gromp, Lupi, Pappagalli, Rosso, Sassi (in ARAM: le vite)'],['buffs.on','Promemoria buff','Scadenza buff del Barone e del Drago Antico'],
-  ['deaths.on','Timer di respawn','Quanto manca al respawn dei giocatori morti'],['itemDiff.on','Differenza valore oggetti','Tieni premuto TAB: squadra e avversario diretto'],['loading.on','Statistiche squadre','Rango e win rate di tutti i giocatori (caricamento e Ctrl+T)']];
+/* ================= OVERLAY (stile Blitz) ================= */
 const TIMERS = [['dragonFirst','Primo drago'],['dragonRespawn','Respawn drago'],['elderRespawn','Respawn Drago Antico'],['grubsFirst','Larve del Vuoto'],['heraldFirst','Araldo'],['atakhanFirst','Atakhan (0 = disattivo)'],
   ['baronFirst','Primo Barone'],['baronRespawn','Respawn Barone'],['campFirst','Primo spawn campi'],['buffFirst','Primo spawn Blu/Rosso'],['campRespawn','Respawn campi piccoli'],['buffRespawn','Respawn Blu/Rosso'],
   ['baronBuff','Durata buff Barone'],['elderBuff','Durata buff Antico'],['relicFirst','ARAM: prime vite'],['relicRespawn','ARAM: respawn vite']];
+const OVF = [
+  {k:'bench', on:'cs.on', ic:'📊', n:'Benchmarking', d:'CS, oro, KP, KDA e livello confrontati con l\'elo che scegli'},
+  {k:'notify', on:'notify.on', ic:'🔔', n:'Notifiche obiettivi', d:'Avviso prima che compaiano drago, barone, araldo, larve e Atakhan'},
+  {k:'objectives', on:'objectives.on', ic:'🐉', n:'Timer obiettivi', d:'Riquadro con i tempi di drago, larve, araldo, Atakhan e barone'},
+  {k:'minimap', on:'minimap', ic:'🗺️', n:'Timer sulla minimappa', d:'Campi della giungla, obiettivi e inibitori direttamente sulla minimappa'},
+  {k:'camps', on:'camps.on', ic:'🌿', n:'Timer giungla (lista)', d:'Elenco dei campi con i respawn; in ARAM i timer delle vite'},
+  {k:'buffs', on:'buffs.on', ic:'⏳', n:'Promemoria buff', d:'Scadenza del buff del Barone e del Drago Antico'},
+  {k:'deaths', on:'deaths.on', ic:'💀', n:'Timer di respawn', d:'Quanto manca al respawn dei giocatori morti'},
+  {k:'itemDiff', on:'itemDiff.on', ic:'💰', n:'Differenza valore oggetti', d:'Tenendo premuto TAB: la tua squadra e il tuo avversario diretto'},
+  {k:'loading', on:'loading.on', ic:'👥', n:'Statistiche squadre', d:'Rango e win rate di tutti, in caricamento e con Ctrl+T'},
+  {k:'timers', ic:'⏱️', n:'Durate dei timer', d:'I tempi di spawn usati da timer e notifiche'},
+];
 function pageOverlay(m){
   const o = S.settings.overlay;
-  const g = p => getPath(o, p);
-  m.innerHTML = `<div class="page"><div class="row mb"><h1>Overlay in-game</h1><span class="sp"></span>
-      <button class="btn ${o.editMode?'':'ghost'}" data-act="editmode">${o.editMode?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo'}</button>${sw('overlay.enabled',o.enabled)}<b>Attivo</b></div>
-    <div class="card flat mb small muted">ℹ️ Imposta League in modalità <b>Senza bordi</b> (Impostazioni di gioco → Video → Modalità finestra): in "Schermo intero" Windows non permette a nessun overlay di comparire sopra il gioco.
-      In partita <b>tieni premuto TAB</b> e trascina i riquadri dove vuoi, con il 🔒 li blocchi. Puoi spostarli anche nell'anteprima qui a destra o con <b>Sposta gli elementi sullo schermo</b>.</div>
-    <div class="grid2" style="grid-template-columns:1fr 1.15fr">
-      <div class="col gap16">
-        <div class="card"><h2>Elementi</h2>${WIDGETS.map(([k,n,d])=>`<div class="setting"><div class="lbl"><b>${n}</b><small>${d}</small></div>${sw('overlay.'+k, g(k))}</div>`).join('')}
-          <div class="setting"><div class="lbl"><b>Dimensione</b></div><input type="range" min="0.7" max="1.6" step="0.05" value="${o.scale}" data-setnum="overlay.scale" style="width:160px"></div></div>
-        <div class="card"><h2>Confronto CS e statistiche</h2>
-          <div class="setting"><div class="lbl"><b>Elo di riferimento</b><small>Il numero dopo la "/" è la media di quell'elo per il tuo campione e ruolo, al minuto di gioco attuale (dalle partite analizzate; finché non ci sono dati è una stima)</small></div>
-            <select data-set="overlay.csGoal">${opt([['elo','Confronta con un elo'],['off','Nessun confronto']],o.csGoal==='off'?'off':'elo')}</select></div>
-          ${o.csGoal!=='off'?`<div class="setting"><div class="lbl"><b>Elo</b></div><select data-set="overlay.csGoalTier">${opt([['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])),o.csGoalTier)}</select></div>`:''}
-          <div class="setting"><div class="lbl"><b>Obiettivo fisso di CS al minuto</b><small>Aggiunge la riga "OBIETTIVO" con il numero che scegli tu (0 = disattivato)</small></div><input type="number" min="0" max="15" step="0.1" value="${o.csGoalValue||0}" data-setnum="overlay.csGoalValue" style="width:90px"></div>
-          <p class="tiny dim">Il tuo valore è verde se sei sopra il riferimento, bianco se sei vicino e rosso se sei sotto.</p></div>
-        <div class="card"><div class="ctitle"><h2>Timer sulla minimappa</h2><span class="sp"></span>${sw('overlay.minimap',o.minimap)}</div>
-          <p class="small muted">I timer compaiono direttamente sopra i campi. Regola la dimensione finché le etichette non combaciano con la tua minimappa.</p>
-          <div class="setting"><div class="lbl"><b>Grandezza delle etichette</b></div><input type="range" min="0.4" max="1.3" step="0.05" value="${o.pillScale}" data-setnum="overlay.pillScale" style="width:180px"></div>
-          <div class="setting"><div class="lbl"><b>Lato minimappa</b><small>${o.minimapSize}px</small></div><input type="range" min="160" max="520" step="2" value="${o.minimapSize}" data-setnum="overlay.minimapSize" style="width:180px"></div>
-          <div class="setting"><div class="lbl"><b>Distanza dal bordo destro</b><small>${o.minimapRight}px</small></div><input type="range" min="0" max="80" step="1" value="${o.minimapRight}" data-setnum="overlay.minimapRight" style="width:180px"></div>
-          <div class="setting"><div class="lbl"><b>Distanza dal bordo inferiore</b><small>${o.minimapBottom}px</small></div><input type="range" min="0" max="80" step="1" value="${o.minimapBottom}" data-setnum="overlay.minimapBottom" style="width:180px"></div></div>
-        <div class="card"><h2>Scorciatoie (solo durante la partita)</h2><div class="hk">
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…6</span></span><span>Campo del tuo lato ripulito: 1 Blu · 2 Gromp · 3 Lupi · 4 Pappagalli · 5 Rosso · 6 Sassi (premi di nuovo per annullare)</span>
+  m.innerHTML = `<div class="page"><div class="row mb wrap"><h1>Overlay</h1><span class="sp"></span>
+      <button class="btn ${o.editMode?'':'ghost'}" data-act="editmode">${o.editMode?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo'}</button>
+      <label class="row b">${sw('overlay.enabled',o.enabled)} Overlay attivo</label></div>
+    <div class="card flat mb small muted">In partita <b>tieni premuto TAB</b>: puoi trascinare ogni riquadro, bloccarlo con 🔒, aprire le sue impostazioni con ⚙ o chiuderlo con ✕, e sistemare il riquadro arancione della minimappa. Funziona con League in modalità <b>Senza bordi</b>.</div>
+    <div class="grid2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)">
+      <div class="col gap16"><div class="ovlist">${OVF.map(f=>`<div class="ovrow"><span class="oi">${f.ic}</span><div class="on2"><b>${f.n}</b><small>${f.d}</small></div>
+          ${['bench','notify','minimap','timers'].includes(f.k)?`<button class="gear" data-act="ovset" data-k="${f.k}" title="Impostazioni">⚙</button>`:''}${f.on?sw('overlay.'+f.on, getPath(o,f.on)):''}</div>`).join('')}</div>
+        <div class="card"><div class="setting"><div class="lbl"><b>Dimensione dei riquadri</b></div><input type="range" min="0.7" max="1.6" step="0.05" value="${o.scale}" data-setnum="overlay.scale" style="width:170px"></div>
+          <div class="setting"><div class="lbl"><b>Riporta tutto com'era</b><small>Posizioni e durate predefinite</small></div><button class="btn ghost sm" data-act="resetoverlay">Ripristina</button></div></div>
+        <div class="card"><h2>Scorciatoie in partita</h2><div class="hk">
+          <span><span class="kbd">TAB</span> (tenuto)</span><span>Sposta, blocca, imposta o chiudi i riquadri · differenza valore oggetti</span>
+          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">E</span></span><span>Modalità modifica fissa (senza tenere TAB)</span>
+          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…6</span></span><span>Campo del tuo lato ripulito: 1 Blu · 2 Gromp · 3 Lupi · 4 Pappagalli · 5 Rosso · 6 Sassi (in ARAM: vite 1-4)</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">1…6</span></span><span>Stesso campo, ma del lato nemico</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…4</span></span><span>In ARAM: vita raccolta (avvia il timer di respawn)</span>
-          <span><span class="kbd">TAB</span> (tenuto)</span><span>Differenza valore oggetti e <b>overlay cliccabile</b>: trascini ogni riquadro, 🔒 lo blocchi, ⚙ apri queste impostazioni, ✕ lo nascondi</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">T</span></span><span>Mostra/nascondi statistiche delle squadre</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">C</span></span><span>Riquadro principale completo / riassunto</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">O</span></span><span>Nascondi/mostra tutto l'overlay (si riattiva da solo alla partita successiva)</span></div></div>
-        <div class="card"><div class="ctitle"><h2>Durate dei timer</h2><span class="sp"></span><button class="btn ghost sm" data-act="resetoverlay">Ripristina predefiniti</button></div>
-          <p class="small muted">In secondi. Riot cambia spesso questi tempi tra una stagione e l'altra: se non tornano, correggili qui.</p>
-          <div class="grid2" style="gap:8px 16px">${TIMERS.map(([k,l])=>`<label class="row small"><span class="sp muted">${l}</span><input type="number" min="0" step="5" value="${o.timers[k]}" data-setnum="overlay.timers.${k}" style="width:80px"></label>`).join('')}</div></div>
+          <span><span class="kbd">Ctrl</span>+<span class="kbd">T</span></span><span>Statistiche delle squadre</span>
+          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">C</span></span><span>Benchmark completo / riassunto</span>
+          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">O</span></span><span>Nascondi/mostra tutto l'overlay</span></div></div>
       </div>
       <div><div class="card" style="position:sticky;top:0"><div class="ctitle"><h2>Anteprima</h2><span class="sp"></span><span class="small muted" id="ovstate"></span></div>
-        <div class="screen" id="screen"></div><p class="small muted mt">✥ Trascina gli elementi con il mouse per posizionarli. Con dati di esempio quando non sei in partita.</p></div></div>
+        <div class="screen" id="screen"></div><p class="small muted mt">✥ Trascina i riquadri con il mouse per posizionarli. Dati di esempio quando non sei in partita.</p></div></div>
     </div></div>`;
   drawOverlayPreview();
   clearInterval(S.ovTimer); S.ovTimer = setInterval(()=>{ if(route()[0]!=='overlay'){clearInterval(S.ovTimer);return;} drawOverlayPreview(); }, 1000);
   bindPreviewDrag();
+  if(S.ui.openOv){ const k=S.ui.openOv; S.ui.openOv=null; actions.ovset({dataset:{k}}); }
 }
+function bzRow(label, ctrl){ return `<div class="bzrow"><span>${label}</span>${ctrl}</div>`; }
+function ovSettingsHTML(k){
+  const o = S.settings.overlay;
+  const eloVal = o.csGoal==='off' ? 'off' : (o.csGoalTier||'MASTER');
+  if(k==='bench') return bzRow('Visualizzazione', `<select data-set="overlay.compact" data-bool="1">${opt([['false','Completa'],['true','Riassunta']], String(!!o.compact))}</select>`)
+    + bzRow('Divisione di riferimento', `<select data-benchelo="1">${opt([['off','Nessuna'],['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])), eloVal)}</select>`)
+    + bzRow('Sempre visibile', sw('overlay.benchAlways', o.benchAlways)) + `<div class="tiny dim" style="margin-top:-6px">Se spento compare solo tenendo premuto TAB</div>`
+    + bzRow('KDA', sw('overlay.benchKDA', o.benchKDA)) + bzRow('CS al minuto', sw('overlay.benchCSM', o.benchCSM)) + bzRow('Oro al minuto', sw('overlay.benchGPM', o.benchGPM))
+    + bzRow('Partecipazione uccisioni', sw('overlay.showKP', o.showKP)) + bzRow('Livello campione', sw('overlay.benchLVL', o.benchLVL))
+    + bzRow('Obiettivo CS/min fisso', `<input type="number" min="0" max="15" step="0.1" value="${o.csGoalValue||0}" data-setnum="overlay.csGoalValue">`) + `<div class="tiny dim" style="margin-top:-6px">0 = nessun obiettivo</div>`
+    + bzRow('CS esatti letti dallo schermo', sw('overlay.ocr', o.ocr)) + `<div class="tiny dim" style="margin-top:-6px">L'API di Riot aggiorna i CS solo ogni 10: così il numero è sempre preciso</div>`;
+  if(k==='notify') return bzRow('Dimensione', `<select data-set="overlay.notifySize">${opt([['small','Piccola'],['medium','Media'],['large','Grande']], o.notifySize||'medium')}</select>`)
+    + bzRow('Durata', `<input type="number" min="3" max="60" step="1" value="${o.notifyDur||10}" data-setnum="overlay.notifyDur"> <span class="small">s</span>`)
+    + `<div class="bzsec">Promemoria · secondi prima che l'obiettivo compaia</div><div id="remlist">${remListHTML()}</div>
+       <button class="btn ghost sm" data-act="addrem">+ Aggiungi promemoria</button>`;
+  if(k==='minimap') return bzRow('Grandezza dei numeri', `<input type="range" min="0.5" max="1.6" step="0.05" value="${o.pillScale}" data-setnum="overlay.pillScale" style="width:150px">`)
+    + bzRow('Lato minimappa', `<input type="range" min="120" max="600" step="1" value="${o.minimapSize}" data-setnum="overlay.minimapSize" style="width:150px">`)
+    + bzRow('Distanza dal bordo destro', `<input type="range" min="0" max="80" step="1" value="${o.minimapRight}" data-setnum="overlay.minimapRight" style="width:150px">`)
+    + bzRow('Distanza dal bordo inferiore', `<input type="range" min="0" max="80" step="1" value="${o.minimapBottom}" data-setnum="overlay.minimapBottom" style="width:150px">`)
+    + `<p class="tiny dim">Più comodo: in partita tieni premuto TAB e trascina/ridimensiona il riquadro arancione finché combacia con la minimappa.</p>`;
+  if(k==='timers') return `<p class="tiny dim">In secondi. Riot cambia spesso questi tempi tra una stagione e l'altra: se non tornano, correggili qui.</p>`
+    + TIMERS.map(([t,l])=>bzRow(l, `<input type="number" min="0" step="5" value="${o.timers[t]}" data-setnum="overlay.timers.${t}" style="min-width:90px;width:90px">`)).join('');
+  return '';
+}
+function remListHTML(){ const l = S.settings.overlay.notifyBefore||[]; return l.map((v,i)=>`<div class="remrow"><input type="number" min="5" max="600" step="5" value="${v}" data-rem="${i}"><span class="small">s</span><button class="iconbtn" data-act="delrem" data-i="${i}">✕</button></div>`).join('') || '<div class="small dim mb">Nessun promemoria</div>'; }
 async function drawOverlayPreview(){
   if(S.ovDrag) return;
   let md; try{ md = await api('/api/overlay/model?preview=1'); }catch(e){ return; }
@@ -825,18 +840,6 @@ function pageStreaming(m){
   fit(); window.addEventListener('resize', fit);
 }
 
-/* ================= PREMIUM ================= */
-function pagePremium(m){
-  m.innerHTML = `<div class="page"><div class="premhero"><div class="kicker" style="color:var(--gold)">BetterStomp</div><h1>✦ Premium</h1>
-      <p class="muted" style="max-width:560px">Tutte le funzioni principali di BetterStomp sono e resteranno gratuite. Premium aggiunge il coach personale e toglie la pubblicità.</p>
-      <div class="row mt2"><button class="coach" style="padding:12px 22px;font-size:14px" data-act="coach"><span class="sparkle">✦</span> Passa a Premium</button><span class="muted small">In arrivo</span></div></div>
-    <div class="grid2 mt2">
-      <div class="card"><div class="feat"><div class="fi">🧠</div><div><h2>Coach AI</h2><p class="muted">Un coach che ti spiega la corsia prima di iniziare e come giocare la partita al meglio in base ai campioni in campo. Dopo ogni game, il pulsante dorato accanto ad "Analizza" ti dà una revisione approfondita.</p></div></div></div>
-      <div class="card"><div class="feat"><div class="fi">🚫</div><div><h2>Niente pubblicità</h2><p class="muted">Rimuove tutti gli spazi pubblicitari dall'app per un'interfaccia più pulita e più spazio per i contenuti.</p></div></div></div>
-    </div>
-    <div class="card flat mt2"><div class="kicker mb">Sempre gratis</div><div class="row wrap gap6">${['Statistiche e tier list','Build per rango','Champion select','Import automatico','Analisi delle partite','Overlay in-game','Overlay streaming','Note della patch','Profilo e premade'].map(x=>`<span class="badge">✓ ${x}</span>`).join('')}</div></div></div>`;
-}
-
 /* ================= IMPOSTAZIONI ================= */
 function pageSettings(m){
   const s = S.settings;
@@ -873,8 +876,7 @@ function pageSettings(m){
       <div class="card"><h2>Client di League</h2>
         <div class="setting" style="flex-wrap:wrap"><div class="lbl"><b>Cartella di installazione</b><small>Lascia vuoto per il rilevamento automatico</small></div>
           <input type="text" data-set="leaguePath" placeholder="C:\\Riot Games\\League of Legends" value="${esc(s.leaguePath||'')}" style="width:100%"></div></div>
-      <div class="card flat"><h2>Sviluppo</h2><div class="setting"><div class="lbl"><b>Simula Premium</b><small>Nasconde gli spazi pubblicitari per vedere l'app senza annunci</small></div>${sw('premium',s.premium)}</div>
-        <p class="tiny dim">BetterStomp isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties.</p></div>
+      <div class="card flat"><p class="tiny dim">BetterStomp isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties.</p></div>
     </div></div></div>`;
   updateEngineBox();
   drawProList();
@@ -940,8 +942,6 @@ const actions = {
     el.innerHTML = analysisHTML(g);
     el.style.display='block';
   },
-  coach(){ modal('✦ Coach AI', `<div class="feat"><div class="fi">🧠</div><div><p>Il Coach AI fa parte di <b class="goldc">BetterStomp Premium</b>, in arrivo a breve.</p>
-    <p class="muted">Ti spiegherà la corsia prima della partita e rivedrà i tuoi game in dettaglio. Nel frattempo "Analizza" resta gratuito per ogni partita.</p><a class="btn" href="#/premium" data-close>Scopri Premium</a></div></div>`); },
   openchamp(t){ if(!t.dataset.id) return; if(t.dataset.pos && t.dataset.pos!=='ALL'){ S.ui.chPos=t.dataset.pos; S.ui.chId=t.dataset.id; }
     if(route()[0]==='tier'){ S.ui.chMode=S.ui.tmode; S.ui.chTier=S.ui.ttier; } if(route()[0]==='campioni'){ S.ui.chMode=S.ui.cmode; S.ui.chTier=S.ui.ctier; }
     location.hash='#/campione/'+t.dataset.id; },
@@ -978,6 +978,10 @@ const actions = {
   pf(t){ S.ui.pf=t.dataset.k; document.querySelectorAll('[data-act=pf]').forEach(c=>c.classList.toggle('on',c===t)); drawPatch(); },
   patchrefresh(){ pagePatch($('#main'), route(), false, true); },
   async resetoverlay(){ S.settings = await api('/api/settings/reset-overlay'); render(); toast('Overlay ripristinato'); },
+  ovset(t){ const f = OVF.find(x=>x.k===t.dataset.k); if(!f) return;
+    const d = modal(`${f.ic} ${f.n}`, `<div>${ovSettingsHTML(f.k)}</div>`); d.querySelector('.box').classList.add('bzbox'); },
+  addrem(){ const l=[...(S.settings.overlay.notifyBefore||[]), 30]; setSetting('overlay.notifyBefore', l); $('#remlist').innerHTML=remListHTML(); },
+  delrem(t){ const l=[...(S.settings.overlay.notifyBefore||[])]; l.splice(+t.dataset.i,1); setSetting('overlay.notifyBefore', l); $('#remlist').innerHTML=remListHTML(); },
   editmode(t){ const on=!S.settings.overlay.editMode; setSetting('overlay.editMode', on); t.classList.toggle('ghost',!on); t.textContent = on?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo';
     toast(on?'Modalità modifica attiva: trascina gli elementi sullo schermo, poi premi "Fine modifica"':'Posizioni salvate'); },
   copyobs(){ navigator.clipboard.writeText($('#obsurl').value).then(()=>toast('Indirizzo copiato')); },
@@ -994,12 +998,15 @@ document.addEventListener('click', e=>{
 });
 document.addEventListener('change', e=>{
   const t = e.target;
+  if(t.dataset.rem!==undefined){ const l=[...(S.settings.overlay.notifyBefore||[])]; l[+t.dataset.rem]=Math.max(1, parseFloat(t.value)||60); setSetting('overlay.notifyBefore', l); return; }
+  if(t.dataset.benchelo){ if(t.value==='off') setSetting('overlay.csGoal','off'); else { setSetting('overlay.csGoal','elo'); setSetting('overlay.csGoalTier', t.value); } return; }
+  if(t.dataset.bool && t.dataset.set){ setSetting(t.dataset.set, t.value==='true'); return; }
   if(t.dataset.pro!==undefined){ const l=[...(S.settings.proPlayers||[])]; const i=+t.dataset.pro; l[i]={...l[i],[t.dataset.f]:t.value.trim()}; setSetting('proPlayers',l); return; }
   if(t.dataset.set){
     if(t.dataset.set==='_why'){ S.ui.why=t.checked; drawPatch(); return; }
     setSetting(t.dataset.set, t.type==='checkbox' ? t.checked : t.value);
     if(t.dataset.set==='stream.goalTier' || t.dataset.set==='overlay.csGoal') render();
-    if(['autoRunes','autoSpells','autoItems'].includes(t.dataset.set)) document.querySelectorAll(`[data-set=${t.dataset.set}]`).forEach(x=>x.checked=t.checked);
+    if(t.type==='checkbox') document.querySelectorAll(`[data-set="${t.dataset.set}"]`).forEach(x=>x.checked=t.checked);
   }
   if(t.dataset.ui){ S.ui[t.dataset.ui] = t.dataset.num ? +t.value : t.value; if(t.dataset.ui==='sopp'){ S.ui.soppManual=false; } if(t.dataset.ui==='chMode') S.ui.chPos=''; if(['sopp','spos','smode','selTier'].includes(t.dataset.ui)){ S.ui.ssig=''; if(t.dataset.ui!=='sopp') S.ui.sbuildKey=''; updateSelect(true); } else render(); }
 });

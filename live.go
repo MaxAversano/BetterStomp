@@ -377,11 +377,65 @@ func buildOverlayModel(preview bool) OverlayModel {
 		lines = append(lines, timerLine("Barone", baronNext, colAccent))
 		objLines = lines
 	}
-	if o.CS.On && me != nil {
+	live.mu.RLock()
+	tabNow := live.tabHeld
+	live.mu.RUnlock()
+	if o.CS.On && me != nil && (o.BenchAlways || tabNow || preview) {
 		m.Widgets = append(m.Widgets, mainWidget(o, d, me, gt, nil))
 	}
+	// notifiche obiettivi: promemoria prima dello spawn e avviso quando compare
+	if o.Notify.On && !aram {
+		type objT struct {
+			name string
+			at   float64
+		}
+		dn := "Drago"
+		if elderPhase {
+			dn = "Drago Antico"
+		}
+		objs := []objT{{dn, dragonNext}, {"Barone", baronNext}}
+		if !heraldDone {
+			objs = append(objs, objT{"Araldo", t.HeraldFirst})
+		}
+		if !grubsDone {
+			objs = append(objs, objT{"Larve del Vuoto", t.GrubsFirst})
+		}
+		if !atakhanDone && t.AtakhanFirst > 0 {
+			objs = append(objs, objT{"Atakhan", t.AtakhanFirst})
+		}
+		dur := o.NotifyDur
+		if dur <= 0 {
+			dur = 10
+		}
+		var msgs []OLine
+		size := map[string]int{"small": 16, "medium": 20, "large": 26}[o.NotifySize]
+		if size == 0 {
+			size = 20
+		}
+		for _, ob := range objs {
+			for _, r := range o.NotifyBefore {
+				if r > 0 && gt >= ob.at-r && gt < ob.at-r+dur && gt < ob.at {
+					msgs = append(msgs, OLine{Text: ob.name + " tra " + mmss(ob.at-gt), Color: colGold, Bold: true, Size: size})
+					break
+				}
+			}
+			if gt >= ob.at && gt < ob.at+dur && ob.at > 0 {
+				msgs = append(msgs, OLine{Text: ob.name + " è comparso!", Color: colGood, Bold: true, Size: size})
+			}
+		}
+		if preview && len(msgs) == 0 {
+			msgs = append(msgs, OLine{Text: "Drago tra 0:58", Color: colGold, Bold: true, Size: size})
+		}
+		if len(msgs) > 0 {
+			wd := map[string]int{"small": 240, "medium": 300, "large": 380}[o.NotifySize]
+			if wd == 0 {
+				wd = 300
+			}
+			m.Widgets = append(m.Widgets, OWidget{ID: "notify", Key: "notify", X: o.Notify.X, Y: o.Notify.Y, Anchor: "center", Title: "OBIETTIVO", Accent: colGold, Width: wd, Lines: msgs, Icons: true, Locked: o.Notify.Locked})
+		}
+	}
 	if len(objLines) > 0 {
-		m.Widgets = append(m.Widgets, OWidget{ID: "objectives", Key: "objectives", X: o.Objectives.X, Y: o.Objectives.Y, Title: "OBIETTIVI", Accent: colAccent, Width: 156, Lines: objLines, Icons: true, Locked: o.Objectives.Locked})
+		m.Widgets = append(m.Widgets, OWidget{ID: "objectives", Key: "objectives", X: o.Objectives.X, Y: o.Objectives.Y, Title: "OBIETTIVI", Accent: colAccent, Width: 170, Lines: objLines, Icons: true, Locked: o.Objectives.Locked})
 	}
 
 	if preview && baronBuffEnd == 0 {
@@ -725,7 +779,7 @@ func cmpCol(you, ref float64) string {
 
 // riquadro "benchmark" in stile Blitz: il tuo valore / la media dell'elo scelto
 func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj []OLine) OWidget {
-	w := OWidget{ID: "main", Key: "cs", X: o.CS.X, Y: o.CS.Y, Title: "BETTERSTOMP", Accent: colCyan, Width: 156, Icons: true, Locked: o.CS.Locked}
+	w := OWidget{ID: "main", Key: "cs", X: o.CS.X, Y: o.CS.Y, Title: "BETTERSTOMP", Accent: colCyan, Width: 170, Icons: true, Locked: o.CS.Locked}
 	mins := gt / 60
 	if mins < 0.01 {
 		mins = 0.01
@@ -745,7 +799,8 @@ func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj 
 	if earned < 0 {
 		earned = 0
 	}
-	csm := float64(me.Scores.CreepScore) / mins
+	cs := effectiveCS(me)
+	csm := float64(cs) / mins
 	gpm := earned / mins
 	kp := 0.0
 	if teamK > 0 {
@@ -763,7 +818,7 @@ func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj 
 		}
 		bCSM = b.CSM * ramp
 		bGPM = b.GPM * math.Min(1, 0.25+0.75*math.Min(1, gt/1200))
-		bKP = b.KP * 100
+		bKP = b.KP * 100 * (0.35 + 0.65*math.Min(1, gt/900))
 		bKDA = b.KDA * math.Min(1, gt/900)
 		bLVL = expectedLevel(mins)
 	}
@@ -775,16 +830,24 @@ func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj 
 		}
 		return l
 	}
-	if o.CS.On {
+	if o.BenchCSM {
 		w.Lines = append(w.Lines, row("CSM", csm, bCSM, hasBench))
 		if o.CSGoalValue > 0 {
 			w.Lines = append(w.Lines, row("OBIETTIVO", csm, o.CSGoalValue, true))
 		}
+		w.Lines = append(w.Lines, OLine{Text: "CS", Right: fmt.Sprint(cs), Color: colText, Bold: true})
+	}
+	if o.BenchGPM {
 		w.Lines = append(w.Lines, row("GPM", gpm, bGPM, hasBench))
-		if o.ShowKP {
-			w.Lines = append(w.Lines, row("KP", kp, bKP, hasBench))
-		}
-		w.Lines = append(w.Lines, row("KDA", kda, bKDA, hasBench), row("LVL", float64(me.Level), math.Floor(bLVL), hasBench))
+	}
+	if o.ShowKP {
+		w.Lines = append(w.Lines, row("KP", kp, bKP, hasBench))
+	}
+	if o.BenchKDA {
+		w.Lines = append(w.Lines, row("KDA", kda, bKDA, hasBench))
+	}
+	if o.BenchLVL {
+		w.Lines = append(w.Lines, row("LVL", float64(me.Level), math.Floor(bLVL), hasBench))
 	}
 	if o.Compact {
 		w.Title, w.Icons = "", false
@@ -821,4 +884,13 @@ func inhibPos(name string) ([2]float64, bool) {
 	}
 	v, ok := red[lane]
 	return v, ok
+}
+
+// CS reali: il numero letto dallo schermo, se coerente con l'API (che arrotonda alle decine)
+func effectiveCS(me *LivePlayer) int {
+	api := me.Scores.CreepScore
+	if v, ok := ocrCS(); ok && v >= api && v < api+10 {
+		return v
+	}
+	return api
 }

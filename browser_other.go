@@ -8,3 +8,6 @@ func openAppWindow(url string)              { fmt.Println("BetterStomp:", url) }
 func processCommandLine(name string) string { return "" }
 func setDPIAware()                          {}
 func startOverlay()                         {}
+
+func startOCR()          {}
+func ocrCS() (int, bool) { return 0, false }

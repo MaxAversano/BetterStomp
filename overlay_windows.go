@@ -3,6 +3,7 @@
 package main
 
 import (
+	"math"
 	"runtime"
 	"strconv"
 	"strings"
@@ -138,7 +139,7 @@ func setHotkeys(on bool) {
 		return
 	}
 	hotkeysOn = on
-	ids := []int{20, 21, 22}
+	ids := []int{20, 21, 22, 23}
 	for i := 1; i <= 6; i++ {
 		ids = append(ids, i, 10+i)
 	}
@@ -155,6 +156,7 @@ func setHotkeys(on bool) {
 	pRegisterHotKey.Call(ovHwnd, 20, modControl|modNoRepeat, 'T')
 	pRegisterHotKey.Call(ovHwnd, 21, modControl|modShift|modNoRepeat, 'O')
 	pRegisterHotKey.Call(ovHwnd, 22, modControl|modShift|modNoRepeat, 'C')
+	pRegisterHotKey.Call(ovHwnd, 23, modControl|modShift|modNoRepeat, 'E')
 }
 
 var (
@@ -324,8 +326,9 @@ func paintOverlay(hdc uintptr) {
 			if ps <= 0 {
 				ps = 0.8
 			}
-			x := ovW - int32(w.X)
-			y := ovH - int32(w.Y)
+			u := float64(ovH) / 1080
+			x := ovW - int32(w.X*u)
+			y := ovH - int32(w.Y*u)
 			pw, ph := sc(40*ps), sc(16*ps)
 			r := rect{x - pw/2, y - ph/2, x + pw/2, y + ph/2}
 			if len(w.Lines) > 0 {
@@ -451,6 +454,20 @@ func paintOverlay(hdc uintptr) {
 		}
 	}
 
+	// riquadro della minimappa: trascinalo e ridimensionalo dall'angolo in alto a sinistra
+	if interactive && s.Minimap {
+		u := float64(ovH) / 1080
+		size := int32(float64(s.MinimapSize) * u)
+		r := rect{ovW - int32(float64(s.MinimapRight)*u) - size, ovH - int32(float64(s.MinimapBottom)*u) - size, 0, 0}
+		r.r, r.b = r.l+size, r.t+size
+		dashRect(mem, r, rgb("#F5B947"))
+		hd := sc(12)
+		fillRect(mem, rect{r.l - hd/2, r.t - hd/2, r.l + hd/2, r.t + hd/2}, rgb("#F5B947"))
+		drawText(mem, "MINIMAPPA · trascina / ridimensiona dall'angolo", rect{r.l, r.t - sc(22), r.r, r.t - sc(4)}, rgb("#F5B947"), fs(10, true), dtLeft)
+		hits = append(hits, hitRect{"minimap", r, false})
+		icons = append(icons, iconHit{"minimap", "resize", rect{r.l - hd, r.t - hd, r.l + hd, r.t + hd}})
+	}
+
 	if s.EditMode {
 		msg := "MODALITÀ MODIFICA  ·  trascina gli elementi  ·  in partita basta tenere premuto TAB"
 		f := fs(14, true)
@@ -512,6 +529,8 @@ func setWidgetPos(key string, fx, fy float64) {
 		w = &o.ItemDiff
 	case "loading":
 		w = &o.Loading
+	case "notify":
+		w = &o.Notify
 	}
 	if w != nil {
 		w.X, w.Y = fx, fy
@@ -535,6 +554,8 @@ func widgetPtr(o *OverlaySettings, key string) *Widget {
 		return &o.ItemDiff
 	case "loading":
 		return &o.Loading
+	case "notify":
+		return &o.Notify
 	}
 	return nil
 }
@@ -633,6 +654,7 @@ func setEditStyle(on bool) {
 		dragKey = ""
 	}
 	pSetWindowLongPtr.Call(ovHwnd, gwlExStyle, st)
+	pSetWindowPos.Call(ovHwnd, ^uintptr(0), 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate|0x0020) // SWP_FRAMECHANGED
 }
 
 func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
@@ -648,6 +670,11 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			mx, my := lparamXY(lparam)
 			for _, ic := range ovIcons {
 				if mx >= ic.r.l && mx <= ic.r.r && my >= ic.r.t && my <= ic.r.b {
+					if ic.action == "resize" {
+						dragKey = "minimap-resize"
+						pSetCapture.Call(hwnd)
+						return 0
+					}
 					widgetAction(ic.key, ic.action)
 					overlayTick()
 					return 0
@@ -664,6 +691,27 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		}
 		return 0
 	case 0x0200: // WM_MOUSEMOVE
+		if dragKey == "minimap" || dragKey == "minimap-resize" {
+			mx, my := lparamXY(lparam)
+			u := float64(ovH) / 1080
+			settingsMu.Lock()
+			o := &settings.Overlay
+			size := float64(o.MinimapSize) * u
+			if dragKey == "minimap" {
+				l, t := float64(mx-dragOffX), float64(my-dragOffY)
+				o.MinimapRight = int(math.Max(0, (float64(ovW)-l-size)/u))
+				o.MinimapBottom = int(math.Max(0, (float64(ovH)-t-size)/u))
+			} else {
+				right := float64(ovW) - float64(o.MinimapRight)*u
+				bottom := float64(ovH) - float64(o.MinimapBottom)*u
+				ns := math.Max(right-float64(mx), bottom-float64(my))
+				o.MinimapSize = int(math.Min(700, math.Max(120, ns/u)))
+			}
+			settingsMu.Unlock()
+			ovModel = buildOverlayModel(true)
+			pInvalidateRect.Call(hwnd, 0, 0)
+			return 0
+		}
 		if dragKey != "" {
 			mx, my := lparamXY(lparam)
 			l, t := mx-dragOffX, my-dragOffY
@@ -707,6 +755,10 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			live.mu.Unlock()
 		case id == 21:
 			ovHidden = !ovHidden
+		case id == 23:
+			st := getSettings()
+			st.Overlay.EditMode = !st.Overlay.EditMode
+			saveSettings(st)
 		case id == 22:
 			st := getSettings()
 			st.Overlay.Compact = !st.Overlay.Compact

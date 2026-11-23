@@ -52,7 +52,7 @@ h1{font-size:26px;font-weight:700} h2{font-size:18px;font-weight:650} h3{font-si
 .iconbtn:hover{border-color:var(--line2)}
 .gamechip{padding:6px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:var(--muted);background:var(--card)}
 
-.layout{display:grid;grid-template-columns:300px minmax(0,1fr) 300px;gap:18px;padding:18px 22px;height:calc(100vh - 68px)}
+.layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:18px;padding:18px 22px;height:calc(100vh - 68px)}
 body.premium .layout{grid-template-columns:300px minmax(0,1fr)}
 body.premium .adcol{display:none}
 .side,.adcol{overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
@@ -377,3 +377,18 @@ body.premium .premcta{display:none}
 .ow2.bz .ex{color:#8C93A3}
 .ow2.bz.seg1{display:flex;align-items:center;border-radius:6px}
 .mmtxt{position:absolute;transform:translate(-50%,-50%);font-weight:800;text-shadow:0 0 2px #000,0 0 2px #000,1px 1px 0 #000,-1px -1px 0 #000;white-space:nowrap;pointer-events:none}
+
+/* ---------- pagina overlay stile Blitz ---------- */
+.ovlist{display:flex;flex-direction:column;gap:8px}
+.ovrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+.ovrow .oi{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--card2);font-size:18px;flex:none}
+.ovrow .on2{flex:1;min-width:0}.ovrow .on2 b{display:block}.ovrow .on2 small{color:var(--muted)}
+.ovrow .gear{width:34px;height:34px;border-radius:10px;border:1px solid var(--line2);background:var(--card2);color:var(--text);cursor:pointer;font-size:15px}
+.ovrow .gear:hover{border-color:var(--a1)}
+.bzbox{width:min(360px,92vw)!important;padding:18px!important;background:#1b1d24!important;border-color:#2c2f3a!important}
+body.light .bzbox{background:var(--bg2)!important;border-color:var(--line2)!important}
+.bzrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;color:var(--muted);font-weight:600}
+.bzrow select,.bzrow input[type=number]{min-width:130px}
+.bzsec{font-size:12px;color:var(--muted);margin:10px 0 4px}
+.remrow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.remrow input{flex:1}

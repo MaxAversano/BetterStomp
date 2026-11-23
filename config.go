@@ -36,28 +36,38 @@ type Widget struct {
 }
 
 type OverlaySettings struct {
-	Enabled       bool    `json:"enabled"`
-	Scale         float64 `json:"scale"`
-	CS            Widget  `json:"cs"`
-	Objectives    Widget  `json:"objectives"`
-	Camps         Widget  `json:"camps"`
-	Buffs         Widget  `json:"buffs"`
-	Deaths        Widget  `json:"deaths"`
-	ItemDiff      Widget  `json:"itemDiff"`
-	Loading       Widget  `json:"loading"`
-	Minimap       bool    `json:"minimap"`
-	MinimapSize   int     `json:"minimapSize"`   // lato della minimappa in pixel
-	MinimapRight  int     `json:"minimapRight"`  // distanza dal bordo destro
-	MinimapBottom int     `json:"minimapBottom"` // distanza dal bordo inferiore
-	Timers        Timers  `json:"timers"`
-	Compact       bool    `json:"compact"`     // versione riassunta su una riga
-	ShowKP        bool    `json:"showKP"`      // partecipazione alle uccisioni
-	CSGoal        string  `json:"csGoal"`      // elo di riferimento: on (elo) | off
-	CSGoalValue   float64 `json:"csGoalValue"` // obiettivo fisso in CS/min (0 = nessuno)
-	CSGoalTier    string  `json:"csGoalTier"`  // elo di riferimento se elo
-	PillScale     float64 `json:"pillScale"`   // dimensione timer minimappa
-	EditMode      bool    `json:"editMode"`    // trascina gli elementi direttamente sullo schermo
-	Layout        int     `json:"layout"`      // versione del layout predefinito
+	Enabled       bool      `json:"enabled"`
+	Scale         float64   `json:"scale"`
+	CS            Widget    `json:"cs"`
+	Objectives    Widget    `json:"objectives"`
+	Camps         Widget    `json:"camps"`
+	Buffs         Widget    `json:"buffs"`
+	Deaths        Widget    `json:"deaths"`
+	ItemDiff      Widget    `json:"itemDiff"`
+	Loading       Widget    `json:"loading"`
+	Minimap       bool      `json:"minimap"`
+	MinimapSize   int       `json:"minimapSize"`   // lato della minimappa in pixel
+	MinimapRight  int       `json:"minimapRight"`  // distanza dal bordo destro
+	MinimapBottom int       `json:"minimapBottom"` // distanza dal bordo inferiore
+	Timers        Timers    `json:"timers"`
+	Compact       bool      `json:"compact"`     // versione riassunta su una riga
+	ShowKP        bool      `json:"showKP"`      // partecipazione alle uccisioni
+	CSGoal        string    `json:"csGoal"`      // elo di riferimento: on (elo) | off
+	CSGoalValue   float64   `json:"csGoalValue"` // obiettivo fisso in CS/min (0 = nessuno)
+	CSGoalTier    string    `json:"csGoalTier"`  // elo di riferimento se elo
+	PillScale     float64   `json:"pillScale"`   // dimensione timer minimappa
+	EditMode      bool      `json:"editMode"`    // trascina gli elementi direttamente sullo schermo
+	Layout        int       `json:"layout"`      // versione del layout predefinito
+	OCR           bool      `json:"ocr"`         // legge i CS dallo schermo (l'API li aggiorna ogni 10)
+	BenchAlways   bool      `json:"benchAlways"`
+	BenchKDA      bool      `json:"benchKDA"`
+	BenchCSM      bool      `json:"benchCSM"`
+	BenchGPM      bool      `json:"benchGPM"`
+	BenchLVL      bool      `json:"benchLVL"`
+	Notify        Widget    `json:"notify"`       // notifiche obiettivi
+	NotifySize    string    `json:"notifySize"`   // small | medium | large
+	NotifyDur     float64   `json:"notifyDur"`    // secondi a schermo
+	NotifyBefore  []float64 `json:"notifyBefore"` // promemoria: secondi prima dello spawn
 }
 
 type ProPlayer struct {
@@ -93,7 +103,7 @@ type Settings struct {
 	DefaultMode    string          `json:"defaultMode"`
 	DefaultTier    string          `json:"defaultTier"`
 	LeaguePath     string          `json:"leaguePath"`
-	Premium        bool            `json:"premium"`
+	Premium        bool            `json:"premium"` // non più usato: tutto è gratuito
 	Animations     bool            `json:"animations"`
 	Overlay        OverlaySettings `json:"overlay"`
 	Stream         StreamSettings  `json:"stream"`
@@ -108,12 +118,14 @@ func defaultSettings() Settings {
 			CS:         Widget{On: true, X: 0.9165, Y: 0.125},
 			Objectives: Widget{On: true, X: 0.9165, Y: 0.27},
 			ShowKP:     true, CSGoal: "elo", CSGoalValue: 0, CSGoalTier: "MASTER", PillScale: 0.8,
+			OCR: true, BenchAlways: true, BenchKDA: true, BenchCSM: true, BenchGPM: true, BenchLVL: true,
+			Notify: Widget{On: true, X: 0.5, Y: 0.36}, NotifySize: "medium", NotifyDur: 10, NotifyBefore: []float64{60},
 			Camps:    Widget{On: false, X: 0.9165, Y: 0.40},
 			Buffs:    Widget{On: true, X: 0.5, Y: 0.12},
 			Deaths:   Widget{On: true, X: 0.012, Y: 0.40},
 			ItemDiff: Widget{On: true, X: 0.5, Y: 0.19},
 			Loading:  Widget{On: true, X: 0.5, Y: 0.28},
-			Minimap:  true, MinimapSize: 280, MinimapRight: 6, MinimapBottom: 6,
+			Minimap:  true, MinimapSize: 226, MinimapRight: 7, MinimapBottom: 13,
 			Timers: Timers{
 				DragonFirst: 300, DragonRespawn: 300, ElderRespawn: 360,
 				GrubsFirst: 480, HeraldFirst: 900, AtakhanFirst: 1200,
@@ -166,11 +178,20 @@ func loadSettings() {
 		s.Overlay.CSGoal, s.Overlay.CSGoalValue, s.Overlay.CSGoalTier, s.Overlay.ShowKP = "elo", 7.5, "MASTER", true
 	}
 	s.Overlay.EditMode = false
+	if s.Overlay.Layout == 2 {
+		// versione 3: nuove opzioni e minimappa ricalibrata (valori riferiti a 1080p)
+		d := defaultSettings().Overlay
+		o := &s.Overlay
+		o.OCR, o.BenchAlways, o.BenchKDA, o.BenchCSM, o.BenchGPM, o.BenchLVL = true, true, true, true, true, true
+		o.Notify, o.NotifySize, o.NotifyDur, o.NotifyBefore = d.Notify, d.NotifySize, d.NotifyDur, d.NotifyBefore
+		o.MinimapSize, o.MinimapRight, o.MinimapBottom = d.MinimapSize, d.MinimapRight, d.MinimapBottom
+		o.Layout = 3
+	}
 	if s.Overlay.Layout < 2 {
 		// nuovo overlay in stile Blitz: riparto dalle posizioni predefinite
 		d := defaultSettings().Overlay
 		d.Enabled, d.Timers, d.MinimapSize, d.MinimapRight, d.MinimapBottom, d.Minimap = s.Overlay.Enabled, s.Overlay.Timers, s.Overlay.MinimapSize, s.Overlay.MinimapRight, s.Overlay.MinimapBottom, s.Overlay.Minimap
-		d.Layout = 2
+		d.Layout = 3
 		s.Overlay = d
 	}
 	settingsMu.Lock()

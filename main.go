@@ -74,6 +74,7 @@ func main() {
 	go remoteLoop()
 	go patchLoop()
 	go startOverlay()
+	go startOCR()
 
 	start := time.Now()
 	go openAppWindow(appURL)
