@@ -24,21 +24,24 @@ import (
 const opggURL = "https://mcp-api.op.gg/mcp"
 
 type opggClient struct {
-	hc      *http.Client
-	mu      sync.Mutex
-	ids     map[string]int // nome/chiave in minuscolo, senza spazi -> id campione
-	keys    map[int]string // id -> chiave OP.GG (es. MONKEYKING)
-	meta    []opggMetaRow
-	metaAt  time.Time
-	builds  map[string]opggBuildCache
-	jobs    map[string]*opggTierJob
-	failAt  time.Time
-	loading sync.Mutex
+	hc        *http.Client
+	mu        sync.Mutex
+	ids       map[string]int // nome/chiave in minuscolo, senza spazi -> id campione
+	keys      map[int]string // id -> chiave OP.GG (es. MONKEYKING)
+	meta      []opggMetaRow
+	metaAt    time.Time
+	metaPatch string
+	buildsOK  bool
+	builds    map[string]opggBuildCache
+	jobs      map[string]*opggTierJob
+	failAt    time.Time
+	loading   sync.Mutex
 }
 
 type opggBuildCache struct {
-	B  BuildResult
-	At time.Time
+	B     BuildResult `json:"b"`
+	At    time.Time   `json:"at"`
+	Patch string      `json:"patch"`
 }
 
 type opggMetaRow struct {
@@ -56,6 +59,7 @@ type opggMetaRow struct {
 type opggTierJob struct {
 	Tier  string        `json:"tier"`
 	At    time.Time     `json:"at"`
+	Patch string        `json:"patch"`
 	Rows  []opggMetaRow `json:"rows"`
 	Done  int           `json:"-"`
 	Total int           `json:"-"`
@@ -424,59 +428,61 @@ func (o *opggClient) champID(name string) int {
 
 // ---------- meta delle corsie (tutti i ranghi) ----------
 
+// meta delle corsie: salvata su disco, usata subito; se è vecchia si aggiorna in sottofondo
 func (o *opggClient) laneMeta() ([]opggMetaRow, error) {
 	o.mu.Lock()
-	if len(o.meta) > 0 && time.Since(o.metaAt) < 3*time.Hour {
-		m := o.meta
-		o.mu.Unlock()
+	if len(o.meta) == 0 {
+		var disk struct {
+			At    time.Time     `json:"at"`
+			Patch string        `json:"patch"`
+			Rows  []opggMetaRow `json:"rows"`
+		}
+		readJSON(filepath.Join(opggDir(), "meta_v2.json"), &disk)
+		o.meta, o.metaAt, o.metaPatch = disk.Rows, disk.At, disk.Patch
+	}
+	m := o.meta
+	stale := len(m) == 0 || time.Since(o.metaAt) > 6*time.Hour || o.metaPatch != curPatch()
+	o.mu.Unlock()
+	if !stale {
 		return m, nil
 	}
-	if time.Since(o.failAt) < 2*time.Minute {
-		m := o.meta
-		o.mu.Unlock()
-		if len(m) > 0 {
-			return m, nil
-		}
-		return nil, errors.New("op.gg non raggiungibile")
-	}
-	o.mu.Unlock()
-	o.loading.Lock()
-	defer o.loading.Unlock()
-	o.mu.Lock()
-	if len(o.meta) > 0 && time.Since(o.metaAt) < 3*time.Hour {
-		m := o.meta
-		o.mu.Unlock()
+	if len(m) > 0 {
+		go o.refreshMeta()
 		return m, nil
 	}
-	o.mu.Unlock()
-	path := filepath.Join(opggDir(), "meta_v2.json")
-	var disk struct {
-		At   time.Time     `json:"at"`
-		Rows []opggMetaRow `json:"rows"`
-	}
-	readJSON(path, &disk)
-	if len(disk.Rows) > 0 && time.Since(disk.At) < 3*time.Hour {
-		o.mu.Lock()
-		o.meta, o.metaAt = disk.Rows, disk.At
-		o.mu.Unlock()
-		return disk.Rows, nil
-	}
-	rows, err := o.fetchMeta()
-	if err != nil {
-		log.Printf("op.gg meta: %v", err)
-		o.mu.Lock()
-		o.failAt = time.Now()
-		o.mu.Unlock()
-		if len(disk.Rows) > 0 { // meglio dati vecchi di qualche ora che niente
-			return disk.Rows, nil
-		}
+	if err := o.refreshMeta(); err != nil {
 		return nil, err
 	}
 	o.mu.Lock()
-	o.meta, o.metaAt = rows, time.Now()
+	defer o.mu.Unlock()
+	return o.meta, nil
+}
+
+func curPatch() string { return majorMinor(static.version()) }
+
+func (o *opggClient) refreshMeta() error {
+	if !o.loading.TryLock() { // c'è già un aggiornamento in corso
+		o.loading.Lock()
+		o.loading.Unlock()
+		return nil
+	}
+	defer o.loading.Unlock()
+	o.mu.Lock()
+	if len(o.meta) > 0 && time.Since(o.metaAt) < 6*time.Hour && o.metaPatch == curPatch() {
+		o.mu.Unlock()
+		return nil
+	}
 	o.mu.Unlock()
-	writeJSON(path, map[string]any{"at": time.Now(), "rows": rows})
-	return rows, nil
+	rows, err := o.fetchMeta()
+	if err != nil {
+		log.Printf("op.gg meta: %v", err)
+		return err
+	}
+	o.mu.Lock()
+	o.meta, o.metaAt, o.metaPatch = rows, time.Now(), curPatch()
+	o.mu.Unlock()
+	writeJSON(filepath.Join(opggDir(), "meta_v2.json"), map[string]any{"at": time.Now(), "patch": curPatch(), "rows": rows})
+	return nil
 }
 
 func (o *opggClient) fetchMeta() ([]opggMetaRow, error) {
@@ -603,7 +609,7 @@ func (o *opggClient) tierFor(champ int, pos, ot string) string {
 	}
 	o.mu.Lock()
 	var src []opggMetaRow
-	if j := o.jobs[ot]; j != nil && !j.Busy {
+	if j := o.jobs[ot]; j != nil {
 		src = j.Rows
 	}
 	o.mu.Unlock()
@@ -643,7 +649,7 @@ func opggTierList(mode, tf, pos string) ([]TierRow, opggTierInfo, error) {
 	job := opgg.tierJob(ot, meta)
 	opgg.mu.Lock()
 	defer opgg.mu.Unlock()
-	if len(job.Rows) > 0 && !job.Busy {
+	if len(job.Rows) > 0 { // anche durante un aggiornamento in sottofondo
 		rows, tot := metaToRows(job.Rows, pos)
 		info.Games, info.Elo = tot, true
 		return rows, info, nil
@@ -668,7 +674,7 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 		readJSON(filepath.Join(opggDir(), "tier4_"+ot+".json"), j)
 		o.jobs[ot] = j
 	}
-	stale := len(j.Rows) == 0 || time.Since(j.At) > 12*time.Hour
+	stale := len(j.Rows) == 0 || time.Since(j.At) > 12*time.Hour || j.Patch != curPatch()
 	start := stale && !j.Busy && time.Since(o.failAt) > 2*time.Minute
 	if start {
 		j.Busy, j.Done = true, 0
@@ -681,6 +687,15 @@ func (o *opggClient) tierJob(ot string, meta []opggMetaRow) *opggTierJob {
 }
 
 func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
+	if err := o.ensureChamps(); err != nil {
+		log.Printf("op.gg campioni: %v", err)
+		o.mu.Lock()
+		j.Busy = false
+		o.failAt = time.Now()
+		o.mu.Unlock()
+		return
+	}
+	firstErr := ""
 	// una chiamata per campione: OP.GG restituisce le statistiche di ogni ruolo per quell'elo
 	mainPos := map[int]opggMetaRow{}
 	for _, r := range meta {
@@ -723,6 +738,9 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 				omu.Lock()
 				if err != nil {
 					fails++
+					if firstErr == "" {
+						firstErr = err.Error()
+					}
 				} else {
 					for _, x := range ogl(v, "data", "summary", "positions") {
 						ps := opgg2pos[strings.ToLower(ogs(x, "name"))]
@@ -757,7 +775,7 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 	}
 	close(ch)
 	wg.Wait()
-	log.Printf("op.gg tier list %s: %d righe da %d campioni (%d errori)", j.Tier, len(out), len(todo), fails)
+	log.Printf("op.gg tier list %s: %d righe da %d campioni (%d errori) %s", j.Tier, len(out), len(todo), fails, firstErr)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	j.Busy = false
@@ -765,7 +783,7 @@ func (o *opggClient) runTierJob(j *opggTierJob, meta []opggMetaRow) {
 		o.failAt = time.Now()
 		return
 	}
-	j.Rows, j.At = out, time.Now()
+	j.Rows, j.At, j.Patch = out, time.Now(), curPatch()
 	writeJSON(filepath.Join(opggDir(), "tier4_"+j.Tier+".json"), j)
 }
 
@@ -787,6 +805,39 @@ func opggOpt(x any, key string) Opt {
 	return o
 }
 
+func (o *opggClient) loadBuilds() {
+	if o.buildsOK {
+		return
+	}
+	o.buildsOK = true
+	m := map[string]opggBuildCache{}
+	readJSON(filepath.Join(opggDir(), "build.json"), &m)
+	for k, v := range m {
+		if _, ok := o.builds[k]; !ok {
+			o.builds[k] = v
+		}
+	}
+}
+
+var buildSaveMu sync.Mutex
+
+func (o *opggClient) saveBuilds() {
+	o.mu.Lock()
+	cp := make(map[string]opggBuildCache, len(o.builds))
+	for k, v := range o.builds {
+		if v.Patch == curPatch() || time.Since(v.At) < 72*time.Hour {
+			cp[k] = v
+		}
+	}
+	o.mu.Unlock()
+	buildSaveMu.Lock()
+	writeJSON(filepath.Join(opggDir(), "build.json"), cp)
+	buildSaveMu.Unlock()
+}
+
+var buildRefreshing sync.Map
+
+// build OP.GG: quella salvata subito; se è vecchia (6 ore o patch nuova) si aggiorna in sottofondo
 func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 	if mode == "" {
 		mode = "ranked"
@@ -794,26 +845,49 @@ func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 	if mode != "ranked" && mode != "flex" {
 		return BuildResult{}, errors.New("modalità non coperta da op.gg")
 	}
-	if err := opgg.ensureChamps(); err != nil {
-		return BuildResult{}, err
-	}
 	pos = strings.ToUpper(pos)
+	if pos == "MID" {
+		pos = "MIDDLE"
+	}
 	if _, ok := pos2opgg[pos]; !ok {
 		pos = opgg.mainPos(champ)
 	}
 	if pos == "" {
 		return BuildResult{}, errors.New("ruolo sconosciuto")
 	}
-	if pos == "MID" {
-		pos = "MIDDLE"
-	}
 	ot := opggTier(tf)
 	ck := fmt.Sprintf("%d|%s|%s|%s", champ, pos, mode, ot)
 	opgg.mu.Lock()
-	if c, ok := opgg.builds[ck]; ok && time.Since(c.At) < 3*time.Hour {
-		opgg.mu.Unlock()
-		return c.B, nil
+	opgg.loadBuilds()
+	c, ok := opgg.builds[ck]
+	opgg.mu.Unlock()
+	if ok {
+		if time.Since(c.At) > 6*time.Hour || c.Patch != curPatch() {
+			if _, busy := buildRefreshing.LoadOrStore(ck, true); !busy {
+				go func() {
+					defer buildRefreshing.Delete(ck)
+					if _, err := opggBuildFetch(champ, pos, mode, tf, ot, ck); err == nil {
+						opgg.saveBuilds()
+					}
+				}()
+			}
+		}
+		b := c.B
+		b.Tier = tf
+		return b, nil
 	}
+	b, err := opggBuildFetch(champ, pos, mode, tf, ot, ck)
+	if err == nil {
+		go opgg.saveBuilds()
+	}
+	return b, err
+}
+
+func opggBuildFetch(champ int, pos, mode, tf, ot, ck string) (BuildResult, error) {
+	if err := opgg.ensureChamps(); err != nil {
+		return BuildResult{}, err
+	}
+	opgg.mu.Lock()
 	key := opgg.keys[champ]
 	failed := time.Since(opgg.failAt) < time.Minute
 	opgg.mu.Unlock()
@@ -990,7 +1064,24 @@ func opggBuild(champ int, pos, mode, tf string) (BuildResult, error) {
 		r.Worst = append(r.Worst, pair(x))
 	}
 	opgg.mu.Lock()
-	opgg.builds[ck] = opggBuildCache{r, time.Now()}
+	opgg.builds[ck] = opggBuildCache{r, time.Now(), curPatch()}
 	opgg.mu.Unlock()
 	return r, nil
+}
+
+// all'avvio: controlla se i dati salvati vanno aggiornati (meta e tier list del tuo elo)
+func opggWarmup() {
+	time.Sleep(5 * time.Second)
+	if getSettings().OpggOff {
+		return
+	}
+	meta, err := opgg.laneMeta()
+	if err != nil || len(meta) == 0 {
+		return
+	}
+	ot := opggTier(autoTier())
+	if ot == "" {
+		ot = "all"
+	}
+	opgg.tierJob(ot, meta)
 }

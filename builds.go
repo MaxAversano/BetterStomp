@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"time"
 )
 
 // ---------- Build personali (slot 5 - 10 - 10) ----------
@@ -80,10 +79,10 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 	}
 	b, err := BuildResult{}, errors.New("")
 	var otp []ProGame
-	var otpCh chan []ProGame
+	otpPending := false
 	if !getSettings().OpggOff {
-		otpCh = make(chan []ProGame, 1)
-		go func() { otpCh <- opggOTPGames(champ) }() // in parallelo alla build
+		otp, _ = opggOTPCached(champ) // le partite mancanti arrivano in sottofondo
+		otpPending = len(otp) == 0
 	}
 	if !getSettings().OpggOff {
 		b, err = opggBuild(champ, pos, mode, tier) // dati OP.GG, il nostro motore resta di riserva
@@ -96,12 +95,7 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 	if b.Position == "" {
 		b.Position = pos
 	}
-	if otpCh != nil {
-		select {
-		case otp = <-otpCh:
-		case <-time.After(8 * time.Second):
-		}
-	}
+	b.OtpPending = otpPending
 	if len(otp) > 0 {
 		var mine []ProGame
 		for _, g := range otp {

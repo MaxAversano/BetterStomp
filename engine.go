@@ -1163,6 +1163,7 @@ type BuildResult struct {
 	ItemsList     []Opt           `json:"itemsList"`
 	RunePages     []*RunePage     `json:"runePages"`
 	RuneKeystones []Opt           `json:"runeKeystones"`
+	OtpPending    bool            `json:"otpPending,omitempty"`
 }
 
 func topS(m map[string]*Stat, min int) (string, *Stat) {

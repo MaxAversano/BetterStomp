@@ -468,6 +468,9 @@ async function pageChampion(m, r, soft){
   u.chData = data; u.chKey = key; u.chDetail = {id:c.id, d:detail};
   if(u.variant >= (data.build.variants||[]).length) u.variant = 0;
   const b = data.build;
+  // le partite degli OTP arrivano in sottofondo la prima volta: ricarico una volta sola
+  clearTimeout(u.otpT);
+  if(b.otpPending && u.otpTry!==c.id+u.chPos){ u.otpTry=c.id+u.chPos; u.otpT=setTimeout(()=>{ if(route()[1]===c.id) pageChampion($('#main'), route(), true); }, 5000); }
   const tile = (k,v,cls='') => `<div class="htile"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
   put($('#chstats'), b.games ? `${b.tierLabel?`<div class="htile tierT"><div class="k">Tier</div><div class="v">${tierBadge(b.tierLabel)}</div></div>`:''}${tile('Win rate',pct(b.winRate),b.winRate>=.5?'good':'bad')}${tile('Pick rate',pct(b.pickRate))}${tile('Ban rate',pct(b.banRate))}${tile('Partite',num(b.games))}${b.kda&&b.kda[1]?tile('KDA',`${b.kda[0].toFixed(1)} / ${b.kda[1].toFixed(1)} / ${b.kda[2].toFixed(1)}`):''}`
     : `<span class="badge">Nessuna statistica ancora per questo filtro</span>`, soft);

@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,14 +17,42 @@ var opggRegion = map[string]string{"euw1": "EUW", "eun1": "EUNE", "na1": "NA", "
 	"oc1": "OCE", "tr1": "TR", "ru": "RU", "jp1": "JP", "me1": "ME", "sg2": "SG", "tw2": "TW", "vn2": "VN"}
 
 type otpCache struct {
-	G  []ProGame
-	At time.Time
+	G  []ProGame `json:"g"`
+	At time.Time `json:"at"`
 }
 
 var (
-	otpMu     sync.Mutex
-	otpCache_ = map[string]otpCache{}
+	otpMu      sync.Mutex
+	otpCache_  = map[string]otpCache{}
+	otpLoaded  bool
+	otpRunning sync.Map
 )
+
+// partite OTP: quelle salvate subito, aggiornate in sottofondo se hanno più di 2 ore
+func opggOTPCached(champ int) ([]ProGame, bool) {
+	region := opggRegion[strings.ToLower(getSettings().Region)]
+	if region == "" {
+		region = "EUW"
+	}
+	ck := fmt.Sprintf("%d|%s", champ, region)
+	otpMu.Lock()
+	if !otpLoaded {
+		otpLoaded = true
+		readJSON(filepath.Join(opggDir(), "otp.json"), &otpCache_)
+	}
+	c, ok := otpCache_[ck]
+	otpMu.Unlock()
+	if ok && time.Since(c.At) < 2*time.Hour {
+		return c.G, true
+	}
+	if _, busy := otpRunning.LoadOrStore(ck, true); !busy {
+		go func() {
+			defer otpRunning.Delete(ck)
+			opggOTPGames(champ)
+		}()
+	}
+	return c.G, ok
+}
 
 func opggOTPGames(champ int) []ProGame {
 	if err := opgg.ensureChamps(); err != nil {
@@ -34,12 +63,6 @@ func opggOTPGames(champ int) []ProGame {
 		region = "EUW"
 	}
 	ck := fmt.Sprintf("%d|%s", champ, region)
-	otpMu.Lock()
-	if c, ok := otpCache_[ck]; ok && time.Since(c.At) < 30*time.Minute {
-		otpMu.Unlock()
-		return c.G
-	}
-	otpMu.Unlock()
 	opgg.mu.Lock()
 	key := opgg.keys[champ]
 	opgg.mu.Unlock()
@@ -128,9 +151,19 @@ func opggOTPGames(champ int) []ProGame {
 	}
 	wg.Wait()
 	sort.Slice(out, func(i, j int) bool { return out[i].When > out[j].When })
+	if len(out) == 0 && len(list) == 0 {
+		return out
+	}
 	otpMu.Lock()
 	otpCache_[ck] = otpCache{out, time.Now()}
+	cp := make(map[string]otpCache, len(otpCache_))
+	for k, v := range otpCache_ {
+		if time.Since(v.At) < 7*24*time.Hour {
+			cp[k] = v
+		}
+	}
 	otpMu.Unlock()
+	writeJSON(filepath.Join(opggDir(), "otp.json"), cp)
 	return out
 }
 

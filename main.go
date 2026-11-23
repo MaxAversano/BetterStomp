@@ -62,6 +62,7 @@ func main() {
 		debug.SetCrashOutput(f, debug.CrashOptions{}) // eventuali crash finiscono qui
 	}
 	log.Printf("avvio su %s", appURL)
+	go opggWarmup()
 	loadSettings()
 	loadPersonal()
 	setDPIAware()
