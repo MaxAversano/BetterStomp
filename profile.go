@@ -387,10 +387,18 @@ func computeDerived(p *Profile) {
 			if o.Team != m.Me.Team || o.Puuid == "" || o.Puuid == p.Puuid || len(m.Parts) < 2 {
 				continue
 			}
-			pm := mates[o.Puuid]
+			// le partite del server hanno PUUID diversi da quelli del client: riconosco le persone dal Riot ID
+			if o.Puuid == m.Me.Puuid || (strings.EqualFold(o.Name, p.Name) && strings.EqualFold(o.Tag, p.Tag)) {
+				continue
+			}
+			key := strings.ToLower(o.Name + "#" + o.Tag)
+			if o.Name == "" {
+				key = o.Puuid
+			}
+			pm := mates[key]
 			if pm == nil {
 				pm = &Premade{Name: o.Name, Tag: o.Tag, Icon: o.Icon}
-				mates[o.Puuid] = pm
+				mates[key] = pm
 			}
 			pm.Games++
 			if m.Me.Win {
@@ -433,7 +441,7 @@ func computeDerived(p *Profile) {
 			p.Premades = append(p.Premades, *pm)
 		}
 	}
-	sort.Slice(p.Premades, func(i, j int) bool { return p.Premades[i].Games > p.Premades[j].Games })
+	sort.Slice(p.Premades, func(i, j int) bool { return p.Premades[i].Last > p.Premades[j].Last }) // i più recenti prima
 	if len(p.Premades) > 12 {
 		p.Premades = p.Premades[:12]
 	}
@@ -536,7 +544,6 @@ func ownProfile(force bool) *Profile {
 			if g.Me.Champ == 0 {
 				continue
 			}
-			analyze(&g)
 			p.Matches = append(p.Matches, g)
 		}
 	}
@@ -583,6 +590,26 @@ func searchProfile(riotID, region string) *Profile {
 	parts := strings.SplitN(riotID, "#", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		p.Error = "Scrivi il Riot ID nel formato Nome#TAG"
+		return p
+	}
+	// con il client aperto i profili si leggono da lì: niente chiave Riot e nessun limite
+	if lcu.isConnected() && (region == getSettings().Region || region == "") {
+		if lp := lcuSearchProfile(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])); lp != nil {
+			profMu.Lock()
+			profCache[ck] = struct {
+				p  *Profile
+				at time.Time
+			}{lp, time.Now()}
+			profMu.Unlock()
+			return lp
+		}
+	}
+	if strings.TrimSpace(getSettings().RiotAPIKey) == "" {
+		if !lcu.isConnected() {
+			p.Error = "Apri il client di League per vedere i profili degli altri giocatori."
+		} else {
+			p.Error = "Giocatore non trovato."
+		}
 		return p
 	}
 	acc, err := riotAccountByID(region, strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
@@ -936,4 +963,72 @@ func applySeasonRoles(p *Profile, pos map[string]int) {
 	if len(l) > 1 && float64(l[1].v) >= float64(l[0].v)*0.25 {
 		p.Roles.Second = l[1].k
 	}
+}
+
+// profilo di un altro giocatore letto dal client di League (storico, rango, maestrie)
+func lcuSearchProfile(name, tag string) *Profile {
+	var sm struct {
+		Puuid    string `json:"puuid"`
+		GameName string `json:"gameName"`
+		TagLine  string `json:"tagLine"`
+		Level    int    `json:"summonerLevel"`
+		Icon     int    `json:"profileIconId"`
+	}
+	q := url.Values{"gameName": {name}, "tagLine": {tag}}
+	var alias struct {
+		Puuid string `json:"puuid"`
+	}
+	if lcu.getJSON("/lol-summoner/v1/alias/lookup?"+q.Encode(), &alias) == nil && alias.Puuid != "" {
+		lcu.getJSON("/lol-summoner/v2/summoners/puuid/"+alias.Puuid, &sm)
+		if sm.Puuid == "" {
+			sm.Puuid = alias.Puuid
+		}
+	}
+	if sm.Puuid == "" {
+		lcu.getJSON("/lol-summoner/v1/summoners?name="+url.QueryEscape(name+"#"+tag), &sm)
+	}
+	if sm.Puuid == "" {
+		return nil
+	}
+	p := &Profile{Source: "client", Ranked: map[string]RankedQueue{}, Region: getSettings().Region}
+	p.Name, p.Tag, p.Puuid, p.Level, p.Icon = name, tag, sm.Puuid, sm.Level, sm.Icon
+	if sm.GameName != "" {
+		p.Name, p.Tag = sm.GameName, sm.TagLine
+	}
+	for k, v := range fetchRanked("/lol-ranked/v1/ranked-stats/" + sm.Puuid) {
+		p.Ranked[k] = v
+	}
+	var mast []struct {
+		Champion int   `json:"championId"`
+		Level    int   `json:"championLevel"`
+		Points   int64 `json:"championPoints"`
+	}
+	if lcu.getJSON("/lol-champion-mastery/v1/"+sm.Puuid+"/champion-mastery", &mast) == nil {
+		for _, x := range mast {
+			p.Mastery = append(p.Mastery, MasteryRow{x.Champion, x.Level, x.Points})
+		}
+		sort.Slice(p.Mastery, func(i, j int) bool { return p.Mastery[i].Points > p.Mastery[j].Points })
+		if len(p.Mastery) > 12 {
+			p.Mastery = p.Mastery[:12]
+		}
+	}
+	var hist struct {
+		Games struct {
+			Games []lcuGame `json:"games"`
+		} `json:"games"`
+	}
+	lcu.getJSON("/lol-match-history/v1/products/lol/"+sm.Puuid+"/matches?begIndex=0&endIndex=20", &hist)
+	for i, g := range hist.Games.Games {
+		if i < 20 {
+			var full lcuGame
+			if lcu.getJSON(fmt.Sprintf("/lol-match-history/v1/games/%d", g.GameID), &full) == nil && len(full.Participants) > 1 {
+				g = full
+			}
+		}
+		m := convertLegacy(g, sm.Puuid)
+		p.Matches = append(p.Matches, m)
+	}
+	sort.Slice(p.Matches, func(i, j int) bool { return p.Matches[i].Start > p.Matches[j].Start })
+	computeDerived(p)
+	return p
 }
