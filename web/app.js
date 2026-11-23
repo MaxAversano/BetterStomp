@@ -151,6 +151,16 @@ function syncBar(st){
   el.querySelector('.sbtxt').innerHTML = `<b>Aggiorno i dati OP.GG</b> · ${what}<span class="sp"></span><b>${pctAll}%</b>`;
   el.querySelector('.sbtrack i').style.width = pctAll+'%';
 }
+// nuova versione scaricata dal server: un clic e si riavvia aggiornata
+function updBar(u){
+  let el = $('#updbar');
+  if(!u?.ready){ if(el) el.remove(); return; }
+  if(el) return;
+  el = document.createElement('div'); el.id='updbar';
+  el.innerHTML = `<span>✨ <b>Nuova versione di BetterStomp</b> pronta</span><button class="btn sm">Aggiorna ora</button>`;
+  el.querySelector('button').onclick = ()=>{ el.querySelector('button').textContent='Riavvio…'; fetch('/api/win?a=update'); };
+  document.body.appendChild(el);
+}
 async function poll(){
   try{ S.st = await api('/api/state'); }catch(e){ return; }
   document.body.classList.toggle('frameless', !!S.st.frameless);
@@ -169,6 +179,7 @@ async function poll(){
   if(c.connected && S.profile && Date.now()-(S._profAt||0) > ((S.profile.seasonLoading||S.profile.seasonPending)?8000:60000) && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{ if(!p.error){ S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search&&!S.ui.openAnAny) render(true); maybePostGame(p); } }).finally(()=>S._profLoading=false); }
   if(c.connected && !S.profile && !S._profLoading){ S._profLoading=true; api('/api/profile').then(p=>{S.profile=p; S._profAt=Date.now(); renderSide(); if(route()[0]==='profilo'&&!S.ui.search) render(true);}).finally(()=>S._profLoading=false); }
   syncBar(S.st.opggSync);
+  updBar(S.st.update);
   renderSide();
   if(route()[0]==='select') updateSelect();
   if(route()[0]==='impostazioni') updateEngineBox();
@@ -1103,6 +1114,7 @@ function pageSettings(m){
     <div class="col gap16">
       <div class="card"><h2>Aspetto</h2>
         <div class="setting"><div class="lbl"><b>Tema</b></div><div class="seg"><button data-act="theme" data-k="dark" class="${s.theme!=='light'?'on':''}">Scuro</button><button data-act="theme" data-k="light" class="${s.theme==='light'?'on':''}">Chiaro</button></div></div>
+        <div class="setting"><div class="lbl"><b>Versione</b><span class="small muted">Gli aggiornamenti arrivano da soli</span></div><span class="small">${esc(S.st?.update?.current||'')}</span></div>
         <div class="setting"><div class="lbl"><b>Animazioni</b></div>${sw('animations',s.animations!==false)}</div>
         <div class="setting"><div class="lbl"><b>Avvia con Windows</b><span class="small muted">Parte nascosta vicino all'orologio e si apre da sola in champion select</span></div>${sw('autostart',!!s.autostart)}</div>
         <div class="setting"><div class="lbl"><b>Notifiche di Windows</b><span class="small muted">Partita trovata, build importata, LP guadagnati o persi</span></div>${sw('notifications',s.notifications!==false)}</div>

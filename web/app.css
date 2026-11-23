@@ -609,3 +609,5 @@ body.frameless .rz{display:block}
 #syncbar .sbtxt .sp{flex:1}
 #syncbar .sbtrack{height:6px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden}
 #syncbar .sbtrack i{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#7c6cff,#4fd1c5);transition:width .6s}
+
+#updbar{position:fixed;right:18px;bottom:18px;z-index:9998;display:flex;gap:12px;align-items:center;background:rgba(18,20,32,.97);border:1px solid rgba(124,108,255,.5);border-radius:12px;padding:10px 12px 10px 16px;box-shadow:0 12px 40px rgba(0,0,0,.45);font-size:13px}

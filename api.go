@@ -56,6 +56,7 @@ func setupAPI(mux *http.ServeMux) {
 			"profileVer": profileVer.Load(),
 			"window":     windowKind(),
 			"opggSync":   opggSyncState(),
+			"update":     updateInfo(),
 		})
 	})
 
