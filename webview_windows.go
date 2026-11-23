@@ -39,7 +39,8 @@ var (
 	wvFailed     atomic.Bool
 	wvMaxed      bool
 	wvRestore    rect
-	wvKeep       []any // oggetti COM passati a WebView2: il GC non deve liberarli
+	wvKeep       []any
+	ncCount      atomic.Int64 // oggetti COM passati a WebView2: il GC non deve liberarli
 )
 
 const wmApp = 0x8000
@@ -128,6 +129,7 @@ func verLess(a, b string) bool {
 func wvWndProc(h, msg, wp, lp uintptr) uintptr {
 	switch msg {
 	case 0x0083: // WM_NCCALCSIZE: tutta la finestra è area della pagina (niente barra)
+		ncCount.Add(1)
 		if wp != 0 {
 			return 0
 		}
@@ -285,7 +287,7 @@ func wvThread(dll, url string, res chan bool) {
 	if h > sh-60 {
 		h = sh - 60
 	}
-	const style = 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000 | 0x00C00000 // THICKFRAME|MINIMIZE|MAXIMIZE|SYSMENU|CAPTION (servono per animazioni e ombra; la barra è tolta in WM_NCCALCSIZE)
+	const style = 0x80000000 | 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000 // POPUP|THICKFRAME|MINIMIZE|MAXIMIZE|SYSMENU: senza WS_CAPTION Windows non disegna la barra; THICKFRAME tiene l'ombra
 	hwnd, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(title)), style,
 		uintptr((sw-w)/2), uintptr((sh-h)/2), uintptr(w), uintptr(h), 0, 0, hinst, 0)
 	if hwnd == 0 {
@@ -296,6 +298,7 @@ func wvThread(dll, url string, res chan bool) {
 	dark := uint32(1)
 	pDwmSetWindowAttrib.Call(hwnd, 20, uintptr(unsafe.Pointer(&dark)), 4)
 	setCorners(hwnd, true)
+	pSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0, swpFrameChg) // ricalcola l'area: niente barra
 	wvMu.Lock()
 	wvHwnd, wvURL = hwnd, url
 	wvMu.Unlock()
@@ -401,4 +404,16 @@ func windowKind() string {
 		return "edge (webview non disponibile)"
 	}
 	return "edge"
+}
+
+func wvDebug() any {
+	h := wvHwnd
+	if h == 0 {
+		return nil
+	}
+	var wr, cr rect
+	pGetWindowRect.Call(h, uintptr(unsafe.Pointer(&wr)))
+	pGetClientRect.Call(h, uintptr(unsafe.Pointer(&cr)))
+	st, _, _ := pGetWindowLongPtr.Call(h, gwlStyle)
+	return map[string]any{"win": []int32{wr.l, wr.t, wr.r, wr.b}, "client": []int32{cr.l, cr.t, cr.r, cr.b}, "style": st, "ncc": ncCount.Load()}
 }

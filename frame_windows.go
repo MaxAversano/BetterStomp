@@ -170,7 +170,12 @@ func framelessLoop() {
 // altezza della pagina in pixel reali (inviata dall'interfaccia)
 var frameDebug atomic.Value
 
-func frameInfo() any { return frameDebug.Load() }
+func frameInfo() any {
+	if d := wvDebug(); d != nil {
+		return d
+	}
+	return frameDebug.Load()
+}
 
 func setInner(h, dpr float64) {
 	if h > 0 && dpr > 0 {
