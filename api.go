@@ -190,6 +190,13 @@ func setupAPI(mux *http.ServeMux) {
 		if tier == "" || tier == "auto" {
 			tier = autoTier()
 		}
+		if !getSettings().OpggOff {
+			if rows, info, err := opggTierList(q.Get("mode"), tier, q.Get("pos")); err == nil && len(rows) > 0 {
+				jsonOut(w, map[string]any{"rows": rows, "matches": info.Games, "eloMatches": info.Games, "patch": majorMinor(static.version()),
+					"tier": tier, "source": "OP.GG", "loading": info.Loading, "done": info.Done, "total": info.Total})
+				return
+			}
+		}
 		rows, matches, patch, elo := engine.TierListN(q.Get("mode"), tier, q.Get("pos"))
 		jsonOut(w, map[string]any{"rows": rows, "matches": matches, "patch": patch, "tier": tier, "eloMatches": elo})
 	})

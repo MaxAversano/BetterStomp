@@ -472,7 +472,7 @@ async function pageChampion(m, r, soft){
   put($('#chstats'), b.games ? `${b.tierLabel?`<div class="htile tierT"><div class="k">Tier</div><div class="v">${tierBadge(b.tierLabel)}</div></div>`:''}${tile('Win rate',pct(b.winRate),b.winRate>=.5?'good':'bad')}${tile('Pick rate',pct(b.pickRate))}${tile('Ban rate',pct(b.banRate))}${tile('Partite',num(b.games))}${b.kda&&b.kda[1]?tile('KDA',`${b.kda[0].toFixed(1)} / ${b.kda[1].toFixed(1)} / ${b.kda[2].toFixed(1)}`):''}`
     : `<span class="badge">Nessuna statistica ancora per questo filtro</span>`, soft);
   put($('#chpos'), isPos(u.chMode) ? (b.positions||[]).filter(p=>p.position!=='ALL'&&p.share>=0.04).map(p=>`<span class="chip ${b.position===p.position?'on':''}" data-act="chpos" data-p="${p.position}">${POS[p.position]} <span class="tiny">${pct(p.share,0)}</span></span>`).join('') : '', soft);
-  put($('#chsrc'), b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
+  put($('#chsrc'), b.source==='OP.GG' ? `Dati OP.GG · patch ${esc(b.patch)}` : b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
   const prof = (S.profile?.season||[]).find(x=>x.champion===key) || S.profile?.champs?.find(x=>x.champion===key);
   put($('#chbody'), `<div class="card cbcard"><div class="ctitle"><h2>Build ${b.personal?'<span class="badge goldc">Personale</span>':''}</h2><span class="sp"></span>
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'✎ Build personale'}</button></div>
@@ -652,6 +652,11 @@ function drawTier(soft){
     return;
   }
   const tname = d.tier.includes('+')?TIER_IT[d.tier.replace('+','')]+'+':TIER_IT[d.tier]||'Tutti i ranghi';
+  if(d.source==='OP.GG'){
+    $('#tinfo').innerHTML = `Dati <b>OP.GG</b> · ${esc(tname)} · ${num(d.matches)} partite${d.loading?` · <span class="warn">carico le statistiche del tuo elo ${d.done||0}/${d.total||'…'} (intanto: tutti i ranghi)</span>`:''}`;
+    clearTimeout(S.ui.tpoll);
+    if(d.loading) S.ui.tpoll = setTimeout(()=>{ if(route()[0]==='tier') pageTier($('#main'), route(), true); }, 4000);
+  } else
   $('#tinfo').innerHTML = `${num(d.eloMatches??d.matches)} partite ${esc(tname)} nella patch ${esc(String(d.patch).split(' ')[0])}${(d.eloMatches??d.matches)<3000?` · <b class="bad">ancora pochi dati: i valori si stabilizzano oltre le 3.000 partite</b>`:''}`;
   const rows = [...d.rows];
   const k = u.tsort, dir = u.tdir||-1;
@@ -1072,6 +1077,7 @@ function pageSettings(m){
         <div class="setting"><div class="lbl"><b>Animazioni</b></div>${sw('animations',s.animations!==false)}</div>
         <div class="setting"><div class="lbl"><b>Avvia con Windows</b><span class="small muted">Parte nascosta vicino all'orologio e si apre da sola in champion select</span></div>${sw('autostart',!!s.autostart)}</div>
         <div class="setting"><div class="lbl"><b>Notifiche di Windows</b><span class="small muted">Partita trovata, build importata, LP guadagnati o persi</span></div>${sw('notifications',s.notifications!==false)}</div>
+        <div class="setting"><div class="lbl"><b>Fonte statistiche</b><span class="small muted">Tier list, build, rune e counter per il tuo elo</span></div><select data-set="opggOff" data-bool="1">${opt([['false','OP.GG (consigliato)'],['true','Solo il mio server']], String(!!s.opggOff))}</select></div>
         <div class="setting"><div class="lbl"><b>Barra di Windows</b><span class="small muted">Usa la cornice classica al posto di quella dell'app</span></div>${sw('nativeFrame',!!s.nativeFrame)}</div></div>
       <div class="card"><h2>Automatismi in champion select</h2>
         <div class="setting"><div class="lbl"><b>Importa rune</b><small>Crea una pagina "BetterStomp" quando blocchi il campione</small></div>${sw('autoRunes',s.autoRunes)}</div>

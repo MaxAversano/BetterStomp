@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -76,7 +77,13 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 	if tier == "" || tier == "auto" {
 		tier = autoTier()
 	}
-	b := engine.ChampionStats(champ, mode, tier, pos)
+	b, err := BuildResult{}, errors.New("")
+	if !getSettings().OpggOff {
+		b, err = opggBuild(champ, pos, mode, tier) // dati OP.GG, il nostro motore resta di riserva
+	}
+	if err != nil {
+		b = engine.ChampionStats(champ, mode, tier, pos)
+	}
 	if b.Position == "" {
 		b.Position = pos
 	}

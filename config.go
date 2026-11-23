@@ -111,6 +111,7 @@ type Settings struct {
 	LeaguePath     string          `json:"leaguePath"`
 	Premium        bool            `json:"premium"` // non più usato: tutto è gratuito
 	Animations     bool            `json:"animations"`
+	OpggOff        bool            `json:"opggOff"` // non usare i dati OP.GG (solo motore/server)
 	Overlay        OverlaySettings `json:"overlay"`
 	Stream         StreamSettings  `json:"stream"`
 }
