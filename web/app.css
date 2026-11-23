@@ -36,7 +36,7 @@ h1{font-size:26px;font-weight:700} h2{font-size:18px;font-weight:650} h3{font-si
 .top{height:68px;display:flex;align-items:center;gap:18px;padding:0 22px;border-bottom:1px solid var(--line);
   background:linear-gradient(180deg,rgba(255,255,255,.03),transparent);backdrop-filter:blur(18px)}
 .brand{display:flex;align-items:center;gap:10px;font-weight:750;font-size:17px;letter-spacing:-.02em;white-space:nowrap}
-.brand img{width:44px;height:44px;object-fit:contain;filter:drop-shadow(0 6px 16px rgba(139,108,255,.45))}
+.brand img{width:42px;height:42px;border-radius:12px;filter:drop-shadow(0 6px 18px rgba(139,108,255,.55))}
 .brand span{background:var(--grad);-webkit-background-clip:text;color:transparent}
 .nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}
