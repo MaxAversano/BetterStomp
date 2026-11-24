@@ -611,3 +611,19 @@ body.frameless .rz{display:block}
 #syncbar .sbtrack i{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#7c6cff,#4fd1c5);transition:width .6s}
 
 #updbar{position:fixed;right:18px;bottom:18px;z-index:9998;display:flex;gap:12px;align-items:center;background:rgba(18,20,32,.97);border:1px solid rgba(124,108,255,.5);border-radius:12px;padding:10px 12px 10px 16px;box-shadow:0 12px 40px rgba(0,0,0,.45);font-size:13px}
+
+.sugg3{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+.sugg3 #sgt{grid-column:span 2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:8px}
+.sugg3 #sgt .sgh{grid-column:span 2}
+@media(min-width:1600px){.sugg3{grid-template-columns:repeat(3,minmax(0,1fr))}.sugg3 #sgt{grid-column:auto;display:flex}}
+.sgcol{padding:12px 10px;display:flex;flex-direction:column;gap:4px}
+.sgh{display:flex;gap:10px;align-items:center;padding:2px 6px 10px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.sgh>div{flex:1;min-width:0}
+.sgi{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:rgba(124,108,255,.15);font-size:15px}
+.sgr{display:flex;gap:10px;align-items:center;padding:7px 8px;border-radius:12px;cursor:pointer;transition:.15s}
+.sgr:hover{background:rgba(255,255,255,.05)}
+.sgr .ic{width:36px;height:36px;border-radius:10px}
+.sgr .nm{font-weight:700;font-size:13px;display:flex;gap:6px;align-items:center}
+.sgr .wr{font-size:14px}
+.sgw{display:flex;gap:3px;margin-top:3px}.sgw .ic.xs{width:16px;height:16px;border-radius:5px}
+.tg.ap{background:rgba(80,140,255,.18);color:#8db4ff}.tg.ad{background:rgba(255,120,80,.18);color:#ffad8f}

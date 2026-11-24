@@ -791,16 +791,59 @@ function updateSelect(force, soft){
     <span class="dim b">vs</span><select data-ui="sopp" data-num="1"><option value="0">Nessun avversario</option>${enemies.map(e=>`<option value="${e}" ${u.sopp===e?'selected':''}>${esc(champ(e).name)}</option>`).join('')}${u.sopp&&!enemies.includes(u.sopp)?`<option value="${u.sopp}" selected>${esc(champ(u.sopp).name)}</option>`:''}</select>
     <button class="btn ghost sm" data-act="pickopp" title="Scegli l'avversario fra tutti i campioni">…</button>
     <select data-ui="selTier" title="Elo delle statistiche">${tierOptions(u.selTier)}</select>`, soft);
-  if(u.stab==='sugg'){
-    if(!$('#sugg')) $('#csbody').innerHTML = `<div class="card"><div class="ctitle"><h2>Quale campione scegliere</h2><span class="sp"></span>
-      <div class="seg"><button data-act="skind" data-k="matchup" class="${u.skind==='matchup'?'on':''}">Contro l'avversario</button><button data-act="skind" data-k="team" class="${u.skind==='team'?'on':''}">Per la squadra</button></div></div><div id="sugg"></div></div>`;
-    loadSuggestions(s, soft || S.ui.suggLoaded); S.ui.suggLoaded = true;
+  if(u.stab==='sugg' || (!s.myChamp && isPos(s.mode))){
+    // nessun campione ancora: al posto dello spazio vuoto, i pick consigliati
+    if(!$('#sugg3')) $('#csbody').innerHTML = sugg3Shell();
+    loadSugg3(s);
     u.sbuildKey = '';
     return;
   }
   const bk = `${s.myChamp}|${s.myPos}|${s.mode}|${u.selTier}`;
   if(bk!==u.sbuildKey || !$('#buildbox')){ u.sbuildKey=bk; loadSelBuild(s, false); }
   else if(b) drawSelHeader(s);
+}
+function sugg3Shell(){
+  return `<div class="sugg3" id="sugg3"><div class="card sgcol" id="sgm"></div><div class="card sgcol" id="sgc"></div><div class="card sgcol" id="sgt"></div></div>
+    <div class="tiny dim mt12" style="text-align:center">Clicca un campione per vedere la sua build · dati OP.GG (matchup e sinergie su tutti i ranghi, tier list del tuo elo)</div>`;
+}
+async function loadSugg3(s){
+  const u = S.ui;
+  const allies = s.mine.filter(x=>!x.me && x.champ).map(x=>({champ:x.champ, pos:x.pos||u.roleMap?.[x.champ]||''}));
+  const exclude = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[]),...s.mine.map(x=>x.champ),...s.theirs.map(x=>x.champ)].filter(Boolean);
+  const req = {pos:s.myPos, tier:u.selTier, opponent:u.sopp||0, allies, exclude};
+  const key = JSON.stringify(req);
+  if(u.sg3?.key===key){ drawSugg3(s, u.sg3.data); return; }
+  if(u.sg3load===key) return;
+  u.sg3load = key;
+  if(!u.sg3) ['#sgm','#sgc','#sgt'].forEach(id=>{ const e=$(id); if(e) e.innerHTML=`<div class="loading"><span class="spinner"></span></div>`; });
+  let d = null; try{ d = await api('/api/cs/suggest', req); }catch(e){}
+  if(u.sg3load!==key) return;
+  u.sg3load = ''; u.sg3 = {key, data:d||{}};
+  if($('#sugg3')) drawSugg3(selState(), u.sg3.data);
+}
+function sgRow(x, extra=''){
+  return `<div class="sgr" data-act="suggpick" data-k="${x.champion}">${ci(x.champion)}
+    <div class="sp" style="min-width:0"><div class="nm">${esc(champ(x.champion).name)} ${tierBadge(x.tier)}${extra}</div><div class="tiny dim ell">${esc(x.detail||'')}</div>
+      ${x.with?.length?`<div class="sgw">${x.with.map(a=>ci(a,'xs')).join('')}</div>`:''}</div>
+    <b class="wr ${x.winRate>=.5?'good':'bad'}">${pct(x.winRate,1)}</b></div>`;
+}
+function drawSugg3(s, d){
+  const u = S.ui;
+  const opp = u.sopp;
+  put($('#sgm'), `<div class="sgh"><span class="sgi">⚔</span><div><b>Contro l'avversario</b><div class="tiny dim">${opp?`chi vince di più contro ${esc(champ(opp).name)} in ${POS[s.myPos]||''}`:'chi vince la corsia'}</div></div>${opp?ci(opp,'s'):''}</div>
+    ${!opp?`<div class="empty small">Ancora nessun avversario di corsia.<br><span class="dim">Quando il nemico sceglie lo trovo da solo, oppure sceglilo dal menu "vs".</span></div>`
+      : (d.matchup||[]).length ? d.matchup.map(x=>sgRow(x)).join('') : `<div class="empty small">Pochi dati su questo matchup.</div>`}`, true);
+  // composizione: ritocco per bilanciare i danni della squadra
+  const allies = s.mine.filter(x=>!x.me).map(x=>x.champ).filter(Boolean);
+  const r = teamDamage(allies), need = r===null||allies.length<2 ? '' : r>0.62 ? 'ap' : r<0.38 ? 'ad' : '';
+  const comp = (d.comp||[]).map(x=>{ const i = champ(x.champion)?.info||{}, a=i.attack||0, m=i.magic||0, ms = a+m ? m/(a+m) : .5;
+    const fit = need==='ap' ? ms-.5 : need==='ad' ? .5-ms : 0;
+    return {...x, adj: x.score + fit*0.03, fit}; }).sort((a,b)=>b.adj-a.adj).slice(0,8);
+  const needTxt = need==='ap' ? 'alla squadra servono danni <b class="apt">magici</b>' : need==='ad' ? 'alla squadra servono danni <b class="adt">fisici</b>' : allies.length ? 'danni della squadra bilanciati' : 'quando gli alleati scelgono, guardo le sinergie';
+  put($('#sgc'), `<div class="sgh"><span class="sgi">🤝</span><div><b>Per la composizione</b><div class="tiny dim">${needTxt}</div></div></div>
+    ${comp.length ? comp.map(x=>sgRow(x, x.fit>0.15?` <span class="tg ${need==='ap'?'ap':'ad'}">${need==='ap'?'magici':'fisici'}</span>`:'')).join('') : `<div class="empty small">Nessun dato.</div>`}`, true);
+  put($('#sgt'), `<div class="sgh"><span class="sgi">🔥</span><div><b>I più forti del ruolo</b><div class="tiny dim">tier list ${esc(POS[s.myPos]||'')} del tuo elo</div></div></div>
+    ${(d.meta||[]).length ? d.meta.map(x=>sgRow(x)).join('') : `<div class="empty small">Tier list non ancora pronta.</div>`}`, true);
 }
 async function loadSuggestions(s, soft){
   const u = S.ui, el = $('#sugg'); if(!el) return;

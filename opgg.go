@@ -28,6 +28,7 @@ type opggClient struct {
 	mu        sync.Mutex
 	ids       map[string]int // nome/chiave in minuscolo, senza spazi -> id campione
 	keys      map[int]string // id -> chiave OP.GG (es. MONKEYKING)
+	snake     map[int]string // id -> nome in UPPER_SNAKE_CASE (es. LEE_SIN)
 	meta      []opggMetaRow
 	metaAt    time.Time
 	metaPatch string
@@ -81,6 +82,15 @@ func opggDir() string {
 // ---------- chiamata JSON-RPC ----------
 
 func (o *opggClient) call(tool string, args map[string]any) (any, error) {
+	t, err := o.callRaw(tool, args)
+	if err != nil {
+		return nil, err
+	}
+	return parseOpgg(t)
+}
+
+// testo della risposta così com'è (alcuni strumenti rispondono in JSON)
+func (o *opggClient) callRaw(tool string, args map[string]any) (string, error) {
 	args["client_app"] = "BetterStomp/1.0"
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": args}})
@@ -90,14 +100,14 @@ func (o *opggClient) call(tool string, args map[string]any) (any, error) {
 	req.Header.Set("User-Agent", "BetterStomp/1.0")
 	resp, err := o.hc.Do(req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer
 	buf.ReadFrom(resp.Body)
 	raw := buf.Bytes()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("op.gg: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("op.gg: HTTP %d", resp.StatusCode)
 	}
 	// a volte la risposta arriva come stream SSE ("data: {...}")
 	if t := bytes.TrimSpace(raw); len(t) > 0 && t[0] != '{' {
@@ -119,18 +129,18 @@ func (o *opggClient) call(tool string, args map[string]any) (any, error) {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, err
+		return "", err
 	}
 	if r.Error != nil {
-		return nil, errors.New("op.gg: " + r.Error.Message)
+		return "", errors.New("op.gg: " + r.Error.Message)
 	}
 	if len(r.Result.Content) == 0 {
-		return nil, errors.New("op.gg: risposta vuota")
+		return "", errors.New("op.gg: risposta vuota")
 	}
 	if r.Result.IsError {
-		return nil, errors.New("op.gg: " + r.Result.Content[0].Text)
+		return "", errors.New("op.gg: " + r.Result.Content[0].Text)
 	}
-	return parseOpgg(r.Result.Content[0].Text)
+	return r.Result.Content[0].Text, nil
 }
 
 // ---------- parser del formato "class X: a,b\n...\nX(1,[...],\"s\")" ----------
@@ -393,13 +403,14 @@ func (o *opggClient) ensureChamps() error {
 		writeJSON(path, list)
 	}
 	o.mu.Lock()
-	o.ids, o.keys = map[string]int{}, map[int]string{}
+	o.ids, o.keys, o.snake = map[string]int{}, map[int]string{}, map[int]string{}
 	for _, c := range list {
 		// OP.GG elenca anche copie speciali dei campioni (id 60000+, modalità a tempo): vanno ignorate
 		if c.ID <= 0 || c.ID >= 10000 || !knownChamp(c.ID) {
 			continue
 		}
 		o.keys[c.ID] = strings.ToUpper(normName(c.Key))
+		o.snake[c.ID] = snakeName(c.Name)
 		o.ids[normName(c.Key)] = c.ID
 		o.ids[normName(c.Name)] = c.ID
 	}

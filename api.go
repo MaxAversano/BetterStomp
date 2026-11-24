@@ -210,6 +210,15 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, map[string]any{"build": b, "personal": pb, "hasPersonal": has})
 	})
 
+	mux.HandleFunc("/api/cs/suggest", func(w http.ResponseWriter, r *http.Request) {
+		var q CSSuggestReq
+		json.NewDecoder(r.Body).Decode(&q)
+		if q.Tier == "" || q.Tier == "auto" {
+			q.Tier = autoTier()
+		}
+		jsonOut(w, csSuggest(q))
+	})
+
 	mux.HandleFunc("/api/suggest", func(w http.ResponseWriter, r *http.Request) {
 		var q SuggestReq
 		json.NewDecoder(r.Body).Decode(&q)
