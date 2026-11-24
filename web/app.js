@@ -251,6 +251,7 @@ function renderSide(){
 function route(){ return (location.hash.replace(/^#\/?/,'')||'profilo').split('/').map(decodeURIComponent); }
 function render(soft){
   const r = route();
+  document.body.classList.toggle('csfocus', r[0]==='select');
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on', a.dataset.p===r[0] || (r[0]==='campione'&&a.dataset.p==='campioni')));
   const m = $('#main');
   const pages = {profilo:pageProfile, campioni:pageChampions, campione:pageChampion, tier:pageTier, select:pageSelect, patch:pagePatch, overlay:pageOverlay, streaming:pageStreaming, impostazioni:pageSettings};
