@@ -3,6 +3,7 @@
 //   ?v=1                      versione pubblicata (JSON, pubblico)
 //   ?get=1                    scarica l'exe (pubblico)
 //   POST ?k=TOKEN&up=1&i=0&n=9&ver=X&sha=Y   carica l'exe a pezzi (solo con il codice del server)
+//   POST ?k=TOKEN&put=lib.php                aggiorna un file del server (elenco chiuso)
 require __DIR__ . '/config.php';
 $dir = __DIR__ . '/app';
 if (!is_dir($dir)) @mkdir($dir, 0755, true);
@@ -43,6 +44,22 @@ if (isset($_GET['up'])) {
     rename($tmp, $exe);
     file_put_contents($verFile, json_encode(['version' => $ver, 'size' => filesize($exe), 'sha256' => $sha, 'at' => time()]));
     echo 'pubblicato';
+    exit;
+}
+
+// aggiornamento dei file del server dall'app di Max (solo questi nomi, mai config.php)
+if (isset($_GET['put'])) {
+    if (!isset($_GET['k']) || !hash_equals($TOKEN, (string)$_GET['k'])) { http_response_code(403); exit('accesso negato'); }
+    $ok = ['app.php', 'data.php', 'lib.php', 'player.php', 'run.php', 'ping.php', 'index.php'];
+    $name = (string)$_GET['put'];
+    if (!in_array($name, $ok, true)) { http_response_code(400); exit('file non ammesso'); }
+    $data = file_get_contents('php://input');
+    if ($data === false || strlen($data) < 10 || strpos($data, '<?php') !== 0) { http_response_code(400); exit('contenuto non valido'); }
+    $tmp = __DIR__ . '/.' . $name . '.tmp';
+    file_put_contents($tmp, $data);
+    rename($tmp, __DIR__ . '/' . $name);
+    if (function_exists('opcache_invalidate')) @opcache_invalidate(__DIR__ . '/' . $name, true);
+    echo 'aggiornato';
     exit;
 }
 

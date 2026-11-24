@@ -64,6 +64,8 @@ func main() {
 	log.Printf("avvio su %s", appURL)
 	go opggWarmup()
 	go updateLoop()
+	go localUpdateLoop()
+	go serverSyncLoop()
 	loadSettings()
 	loadPersonal()
 	setDPIAware()
