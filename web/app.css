@@ -698,3 +698,9 @@ body.csfocus .side{display:none}
 .cscenter .rb-row.ks img{width:40px;height:40px}
 .cscenter .rb-row.sh{gap:10px}.cscenter .rb-row.sh img{width:20px;height:20px}
 .cscenter .rsets{flex-wrap:wrap}
+.kschips{flex-wrap:wrap;min-width:0}
+.cbsec{min-width:0}
+.cscenter .kschips{gap:4px}
+.cscenter .kschip{padding:4px 8px;gap:4px;font-size:12.5px}
+.cscenter .kschip img{width:22px;height:22px}
+.cscenter .kschips>.tiny{flex-basis:100%;margin-left:0!important;text-align:right}
