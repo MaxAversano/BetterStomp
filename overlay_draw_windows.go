@@ -276,6 +276,8 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 	onlyObjs := c.KDA == "" // riquadro con i soli timer degli obiettivi
 	if onlyObjs {
 		topH, csH = 0, 0
+	} else if c.NoKDA {
+		topH = 0
 	}
 	h := pad + topH + csH + rowH*int32(len(c.Rows)) + pad
 	if len(c.Objs) > 0 {
@@ -296,7 +298,7 @@ func drawCard(hdc uintptr, w OWidget, x, y int32, k float64, interactive bool, s
 	right := x + width - pad
 	cy := y + pad
 	tx := left + sc(14)
-	if !onlyObjs {
+	if !onlyObjs && !c.NoKDA {
 		drawText(hdc, "KDA", rect{tx, cy, right, cy + sc(18)}, label, font(int(13*k+0.5), true), dtLeft)
 		drawText(hdc, c.KDA, rect{tx, cy + sc(18), right, cy + sc(46)}, label, font(int(18*k+0.5), true), dtLeft)
 	}

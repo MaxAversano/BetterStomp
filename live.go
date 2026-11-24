@@ -227,8 +227,9 @@ type OCard struct {
 	CS      string  `json:"cs"`
 	CSSub   string  `json:"csSub"` // CS/min e riferimento
 	CSColor string  `json:"csColor"`
-	Rows    []OLine `json:"rows"` // altre statistiche (GPM, KP, LVL)
-	Objs    []OLine `json:"objs"` // timer obiettivi
+	NoKDA   bool    `json:"noKda,omitempty"` // KDA spento nelle impostazioni
+	Rows    []OLine `json:"rows"`            // altre statistiche (GPM, KP, LVL)
+	Objs    []OLine `json:"objs"`            // timer obiettivi
 }
 
 type OTeams struct {
@@ -934,6 +935,7 @@ func mainWidget(o OverlaySettings, d *LiveData, me *LivePlayer, gt float64, obj 
 	}
 	if !o.Compact && !o.Classic {
 		c := &OCard{Champ: champDDID(me.ChampionName), KDA: fmt.Sprintf("%d / %d / %d", me.Scores.Kills, me.Scores.Deaths, me.Scores.Assists), CS: fmt.Sprint(cs), CSColor: colText, Objs: obj}
+		c.NoKDA = !o.BenchKDA
 		c.CSSub = fmt1(csm) + "/min"
 		ref := 0.0
 		if o.CSGoalValue > 0 {

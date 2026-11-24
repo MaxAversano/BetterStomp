@@ -770,20 +770,24 @@ function updateSelect(force, soft){
   put($('#allies'), `<div class="csth ally">La tua squadra</div>` + s.mine.map((p,i)=>{
       const cell = s.cs?.myTeam?.[i]?.cellId, m = mates.find(x=>x.cellId===cell);
       const g = m ? m.wins+m.losses : 0, wr = g ? m.wins/g : 0;
-      return `<div class="csp ${p.me?'me':''}" data-act="override" data-k="a${i}" title="Clicca per correggere il campione">
-        <div class="cpic">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
+      const puuid = s.cs?.myTeam?.[i]?.puuid || '', known = knownMate(m?.name||p.name);
+      return `<div class="csp ${p.me?'me':''}" data-act="csplayer" data-k="a${i}" data-puuid="${esc(puuid)}" data-champ="${p.champ||0}" data-pos="${p.pos}" title="${puuid?'Clicca per la scheda del giocatore':'Clicca per correggere il campione'}">
+        <div class="cpic" data-act="override" data-k="a${i}" title="Cambia campione">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
         <div class="sp" style="min-width:0"><div class="nm">${p.champ?esc(champ(p.champ).name):'<span class="dim">In scelta…</span>'} <span class="tiny dim">${POS[p.pos]||''}</span></div>
           <div class="tiny dim ell">${esc(p.me?'Tu':(m?.name||p.name||'Alleato'))}${m?.champGames?` · ${m.champWins}V ${m.champGames-m.champWins}S col campione`:''}</div>
-          ${m?.tags?.length?`<div class="tags">${m.tags.map(t=>`<span class="tg ${/sconfitte|smurf|Mai/.test(t)?'bad':'good'}">${esc(t)}</span>`).join('')}</div>`:''}</div>
+          ${m?.tags?.length||known?`<div class="tags">${known?`<span class="tg info">Già giocato con te · ${known.games}</span>`:''}${(m?.tags||[]).map(t=>`<span class="tg ${/sconfitte|smurf|Mai/.test(t)?'bad':'good'}">${esc(t)}</span>`).join('')}</div>`:''}
+          ${p.champ?miniBuild(p.champ, p.pos||u.roleMap?.[p.champ]||'', s.mode):''}</div>
         <div class="rk"><b style="color:${TIER_COL[m?.tier]||'var(--muted)'}">${esc(rankTxt2(m))}</b>${g?`<div class="tiny"><b class="${wr>=.5?'good':'bad'}">${pct(wr,0)}</b> <span class="dim">${g}</span></div>`:''}</div></div>`; }).join('')
     + dmgBar('Danni', s.mine.map(x=>x.champ).filter(Boolean)), soft);
   const b = u.selData;
   const mu = id => [...(b?.best||[]),...(b?.worst||[])].find(x=>x.champion===id);
   put($('#enemies'), `<div class="csth enemy">Squadra nemica</div>` + s.theirs.map((p,i)=>{ const x = p.champ && mu(p.champ), opp = p.champ && p.champ===u.sopp;
-      return `<div class="csp ${opp?'opp':''}" data-act="override" data-k="e${i}" title="Clicca per correggere il campione">
-        <div class="cpic">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
+      const puuid = s.cs?.theirTeam?.[i]?.puuid || '';
+      return `<div class="csp ${opp?'opp':''}" data-act="csplayer" data-k="e${i}" data-puuid="${esc(puuid)}" data-champ="${p.champ||0}" data-pos="${u.roleMap?.[p.champ]||''}" title="${puuid?'Clicca per la scheda del giocatore':'Clicca per correggere il campione'}">
+        <div class="cpic" data-act="override" data-k="e${i}" title="Cambia campione">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
         <div class="sp" style="min-width:0"><div class="nm">${p.champ?esc(champ(p.champ).name):'<span class="dim">Non ancora scelto</span>'}</div>
-          <div class="tiny dim">${p.champ?(POS[u.roleMap?.[p.champ]]||''):''}${opp?' · contro di te':''}</div></div>
+          <div class="tiny dim">${p.champ?(POS[u.roleMap?.[p.champ]]||''):''}${opp?' · contro di te':''}</div>
+          ${p.champ?miniBuild(p.champ, u.roleMap?.[p.champ]||'', s.mode):''}</div>
         ${x?`<div class="rk"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate,0)}</b><div class="tiny dim">per te</div></div>`:''}</div>`; }).join('')
     + dmgBar('Danni', enemies), soft);
   const bans = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[])].filter(Boolean);
@@ -805,6 +809,72 @@ function updateSelect(force, soft){
   if(bk!==u.sbuildKey || !$('#buildbox')){ u.sbuildKey=bk; loadSelBuild(s, false); }
   else if(b) drawSelHeader(s);
 }
+// build compatta (rune, incantesimi, oggetti principali) di ogni campione scelto, per entrambe le squadre
+function miniBuild(id, pos, mode){
+  const u = S.ui; u.minib = u.minib||{};
+  const key = `${id}|${isPos(mode)?pos:''}|${mode}|${u.selTier}`, e = u.minib[key];
+  if(!e){
+    u.minib[key] = {loading:true};
+    api(`/api/champion?id=${id}&mode=${mode}&tier=${u.selTier}&pos=${isPos(mode)?pos:''}&vs=0&personal=0`)
+      .then(d=>{ u.minib[key] = {b:d?.build}; }).catch(()=>{ u.minib[key] = {b:null}; })
+      .finally(()=>{ u.ssig=''; updateSelect(true, true); });
+    return `<div class="minib dim tiny">build…</div>`;
+  }
+  const b = e.b; if(!b) return '';
+  const ks = b.runes?.perks?.[0], sec = b.runes?.secondary;
+  const items = (b.core||[]).slice(0,3);
+  if(!ks && !items.length) return '';
+  return `<div class="minib" title="Build più usata">${ks?`<img class="rn" src="${pImg(ks)}" title="${esc(S.perk?.[ks]?.name||'')}">`:''}${sec&&S.perk?.[sec]?`<img class="rn2" src="${pImg(sec)}">`:''}
+    ${(b.spells||[]).slice(0,2).map(x=>`<img class="sp2" src="${sImg(x)}">`).join('')}<i class="sep"></i>${items.map(id=>`<img src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`).join('')}</div>`;
+}
+// compagno con cui hai già giocato di recente (dal tuo profilo)
+function knownMate(name){
+  if(!name) return null;
+  return (S.profile?.premades||[]).find(x=>x.name && x.name.toLowerCase()===String(name).toLowerCase()) || null;
+}
+function roleTxt(r){ return POS[r]||''; }
+async function openPlayerSheet(puuid, champId, pos){
+  const d = modal('Scheda giocatore', `<div class="loading"><span class="spinner"></span></div>`);
+  d.querySelector('.box').classList.add('psbox');
+  const mode = selState().mode, u = S.ui; u.minib = u.minib||{};
+  const bkey = `${champId}|${isPos(mode)?pos:''}|${mode}|${u.selTier}`;
+  const bp = champId && !u.minib[bkey]?.b ? api(`/api/champion?id=${champId}&mode=${mode}&tier=${u.selTier}&pos=${isPos(mode)?pos:''}&vs=0&personal=0`).then(x=>{ u.minib[bkey]={b:x?.build}; }).catch(()=>{}) : null;
+  let p; try{ [p] = await Promise.all([api(`/api/cs/player?puuid=${encodeURIComponent(puuid)}&champ=${champId||0}&pos=${pos||''}`), bp]); }catch(e){ d.querySelector('.body').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const g = p.wins+p.losses, wr = g ? p.wins/g : 0;
+  const rk = p.tier && p.tier!=='NONE' ? `${TIER_IT[p.tier]||p.tier}${['MASTER','GRANDMASTER','CHALLENGER'].includes(p.tier)?'':' '+(p.division||'')} · ${p.lp} LP` : 'Senza rango';
+  const st = p.stats||{}, cm = p.champMastery;
+  const pts = (list, cls) => list?.length ? list.map(x=>`<div class="pspt ${cls}"><b>${esc(x.text)}</b><span class="tiny dim">${esc(x.detail)}</span></div>`).join('') : `<div class="tiny dim" style="padding:6px 2px">Niente di particolare.</div>`;
+  const games = (p.games||[]).slice(0,15);
+  const f1 = v => (v||0).toFixed(1).replace('.',',');
+  const mb = champId && u.minib[bkey]?.b ? miniBuild(champId, pos, mode) : '';
+  d.querySelector('h2').innerHTML = `${esc(p.name||'Giocatore')}<span class="dim">${p.tag?'#'+esc(p.tag):''}</span>`;
+  d.querySelector('.body').innerHTML = `
+    <div class="pshead">
+      ${champId?`<div class="pschamp">${ci(champId)}<div><b>${esc(champ(champId).name)}</b><div class="tiny dim">${cm?`Maestria ${cm.level} · ${num(cm.points)} punti`:'Nessuna maestria trovata'}</div></div></div>`:''}
+      <div class="psrank"><b style="color:${TIER_COL[p.tier]||'var(--muted)'}">${esc(rk)}</b><div class="tiny dim">${g?`<b class="${wr>=.5?'good':'bad'}">${pct(wr,0)}</b> · ${p.wins}V ${p.losses}S in Solo/Duo`:'nessuna partita classificata'}${p.level?` · livello ${p.level}`:''}</div></div>
+      ${p.mainRole?`<div class="psrank"><b>${roleTxt(p.mainRole)}</b><div class="tiny dim">ruolo principale · ${pct(p.roleShare,0)}</div></div>`:''}
+    </div>
+    ${st.N?`<div class="psstats">
+      <div><span class="tiny dim">Vittorie</span><b class="${st.Wins/st.N>=.5?'good':'bad'}">${st.Wins}/${st.N}</b></div>
+      <div><span class="tiny dim">KDA</span><b>${f1(st.KDA)}</b></div>
+      <div><span class="tiny dim">Morti</span><b>${f1(st.Deaths)}</b></div>
+      ${st.CSM?`<div><span class="tiny dim">CS/min</span><b>${f1(st.CSM)}</b></div>`:''}
+      ${st.DmgM?`<div><span class="tiny dim">Danni/min</span><b>${Math.round(st.DmgM)}</b></div>`:''}
+      <div><span class="tiny dim">Visione/min</span><b>${f1(st.VisM)}</b></div>
+    </div>`:''}
+    <div class="psgrid">
+      <div class="card pscol"><div class="psh good">▲ Punti forti</div>${pts(p.strong,'good')}</div>
+      <div class="card pscol"><div class="psh bad">▼ Punti deboli</div>${pts(p.weak,'bad')}</div>
+    </div>
+    ${p.masteries?.length?`<div class="psh mt12">Maestrie</div><div class="psmast">${p.masteries.map(m=>`<div class="psm ${m.champion===champId?'on':''}">${ci(m.champion)}<b class="small">${esc(champ(m.champion).name)}</b><span class="tiny dim">M${m.level} · ${num(m.points)}</span></div>`).join('')}</div>`:''}
+    ${mb?`<div class="psh mt12">Build di ${esc(champ(champId).name)}</div>${mb}`:''}
+    <div class="psh mt12">Ultime partite</div>
+    <div class="psgames">${games.length?games.map(x=>{ const m=Math.max(1,x.dur/60); return `<div class="psg ${x.win?'w':'l'}">${ci(x.champion,'s')}
+      <div class="sp" style="min-width:0"><b class="small ${x.win?'good':'bad'}">${x.win?'Vittoria':'Sconfitta'}</b><div class="tiny dim">${QNAME[x.queue]||'Altro'}${x.role?' · '+roleTxt(x.role):''} · ${ago(x.when)}</div></div>
+      <div class="pskda"><b class="small">${x.k}/<span class="bad">${x.d}</span>/${x.a}</b><div class="tiny dim">${x.cs} CS · ${f1(x.cs/m)}/min</div></div>
+      <div class="psitems">${(x.items||[]).map(id=>`<img src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`).join('')}</div></div>`; }).join(''):'<div class="tiny dim">Cronologia non disponibile.</div>'}</div>`;
+}
+const QNAME = {420:'Solo/Duo',440:'Flex',400:'Normale',430:'Normale',490:'Rapida',480:'Rapida',700:'Clash',450:'ARAM',1700:'Arena',1710:'Arena',900:'URF',1900:'URF',2400:'Mayhem'};
 function sugg3Shell(){
   return `<div class="sugg3" id="sugg3"><div class="card sgcol" id="sgm"></div><div class="card sgcol" id="sgc"></div><div class="card sgcol" id="sgt"></div></div>
     <div class="tiny dim mt12" style="text-align:center">Clicca un campione per vedere la sua build · dati OP.GG (matchup e sinergie su tutti i ranghi, tier list del tuo elo)</div>`;
@@ -1041,7 +1111,7 @@ function ovSettingsHTML(k){
   const o = S.settings.overlay;
   const eloVal = o.csGoal==='off' ? 'off' : (o.csGoalTier||'MASTER');
   if(k==='bench') return bzRow('Visualizzazione', `<select data-set="overlay.compact" data-bool="1">${opt([['false','Completa'],['true','Riassunta']], String(!!o.compact))}</select>`)
-    + bzRow('Stile classico a righe', sw('overlay.classic', !!o.classic)) + `<div class="tiny dim" style="margin-top:-6px">Spento = scheda con ritratto del campione, KDA, CS e timer di drago e barone</div>`
+    + bzRow('Stile classico a righe', sw('overlay.classic', !!o.classic)) + `<div class="tiny dim" style="margin-top:-6px">Spento = scheda con ritratto del campione, KDA, CS e timer di drago e barone (il KDA si toglie con l'interruttore qui sotto)</div>`
     + bzRow('Divisione di riferimento', `<select data-benchelo="1">${opt([['off','Nessuna'],['auto','Il mio rango']].concat(TIERS.map(t=>[t,TIER_IT[t]])), eloVal)}</select>`)
     + bzRow('Sempre visibile', sw('overlay.benchAlways', o.benchAlways)) + `<div class="tiny dim" style="margin-top:-6px">Se spento compare solo tenendo premuto TAB</div>`
     + bzRow('KDA', sw('overlay.benchKDA', o.benchKDA)) + bzRow('CS al minuto', sw('overlay.benchCSM', o.benchCSM)) + bzRow('Oro al minuto', sw('overlay.benchGPM', o.benchGPM))
@@ -1309,6 +1379,7 @@ const actions = {
   async resetbuild(){ await api('/api/personal?id='+S.ui.chKey, {starting:[],core:[],situational:[]}); toast('Build personale eliminata'); S.ui.editing=false; render(); },
   async saverunes(){ const d=S.ui.chData; const cur=d.hasPersonal?d.personal:{}; const pg=d.build.runePages||[]; const rr=(S.ui.runeSel!=null&&pg[S.ui.runeSel])||d.build.variants?.[S.ui.variant]?.runes||d.build.runes; await api('/api/personal?id='+S.ui.chKey, {...cur, runes:rr, spells:d.build.spells}); toast('Rune e incantesimi salvati come personali'); },
   skind(t){ S.ui.skind=t.dataset.k; document.querySelectorAll('[data-act=skind]').forEach(b=>b.classList.toggle('on',b===t)); S.ui.ssig=''; updateSelect(true); },
+  csplayer(t){ const pu=t.dataset.puuid; if(pu) openPlayerSheet(pu, +t.dataset.champ, t.dataset.pos); else actions.override(t); },
   override(t){ champPicker(k=>{ S.ui.over[t.dataset.k]=k; S.ui.ssig=''; S.ui.sbuildKey=''; updateSelect(true); }); },
   pickopp(){ champPicker(k=>{ S.ui.sopp=k; S.ui.soppManual=true; S.ui.ssig=''; updateSelect(true); }); },
   pf(t){ S.ui.pf=t.dataset.k; document.querySelectorAll('[data-act=pf]').forEach(c=>c.classList.toggle('on',c===t)); drawPatch(); },

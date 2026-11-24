@@ -32,6 +32,10 @@ type csCacheEntry struct {
 	level  int
 	champs []int // campioni delle ultime partite
 	wins   []bool
+	games  []csGame // statistiche delle stesse partite (scheda giocatore)
+	sumID  int64
+	name   string
+	tag    string
 }
 
 var (
@@ -49,10 +53,13 @@ func csPlayerData(puuid string) *csCacheEntry {
 	c := &csCacheEntry{at: time.Now()}
 	c.rank = fetchRanked("/lol-ranked/v1/ranked-stats/" + puuid)["RANKED_SOLO_5x5"]
 	var sm struct {
-		Level int `json:"summonerLevel"`
+		Level int    `json:"summonerLevel"`
+		ID    int64  `json:"summonerId"`
+		Name  string `json:"gameName"`
+		Tag   string `json:"tagLine"`
 	}
 	lcu.getJSON("/lol-summoner/v2/summoners/puuid/"+puuid, &sm)
-	c.level = sm.Level
+	c.level, c.sumID, c.name, c.tag = sm.Level, sm.ID, sm.Name, sm.Tag
 	var hist struct {
 		Games struct {
 			Games []lcuGame `json:"games"`
@@ -75,6 +82,7 @@ func csPlayerData(puuid string) *csCacheEntry {
 		p := g.Participants[0]
 		c.champs = append(c.champs, p.ChampionID)
 		c.wins = append(c.wins, p.Stats.Win)
+		c.games = append(c.games, csGameFrom(g))
 	}
 	csMu.Lock()
 	csCache[puuid] = c

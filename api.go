@@ -284,6 +284,15 @@ func setupAPI(mux *http.ServeMux) {
 		jsonOut(w, lpHistory(puuid))
 	})
 
+	mux.HandleFunc("/api/cs/player", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("puuid") == "" {
+			http.Error(w, "giocatore sconosciuto", 400)
+			return
+		}
+		jsonOut(w, playerSheet(q.Get("puuid"), atoi(q.Get("champ")), q.Get("pos")))
+	})
+
 	mux.HandleFunc("/api/cs/mates", func(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, champSelectMates())
 	})

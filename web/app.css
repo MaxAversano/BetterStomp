@@ -639,3 +639,42 @@ body.csfocus .side{display:none}
 
 .mubox{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:rgba(124,108,255,.08);border:1px solid rgba(124,108,255,.25)}
 .mt4{margin-top:4px}
+
+/* ===== champion select: build compatte e scheda giocatore ===== */
+.minib{display:flex;align-items:center;gap:3px;margin-top:4px;min-height:18px}
+.minib img{width:18px;height:18px;border-radius:5px;background:var(--card2)}
+.minib img.rn{border-radius:50%;background:rgba(0,0,0,.35)}
+.minib img.rn2{width:13px;height:13px;border-radius:50%;opacity:.8}
+.minib img.sp2{width:15px;height:15px;border-radius:4px}
+.minib .sep{width:1px;height:14px;background:var(--line);margin:0 2px}
+.tg.info{background:rgba(56,214,255,.13);color:#38D6FF}
+.csp .cpic{transition:.15s}
+.csp .cpic:hover{outline:2px solid rgba(124,108,255,.6);outline-offset:1px}
+.modal .box.psbox{width:min(900px,94vw)}
+.pshead{display:flex;flex-wrap:wrap;gap:12px}
+.pschamp,.psrank{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:14px;background:var(--card2)}
+.psrank{flex-direction:column;align-items:flex-start;justify-content:center;gap:2px}
+.pschamp .ic{width:40px;height:40px;border-radius:11px}
+.psstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-top:12px}
+.psstats>div{padding:9px 12px;border-radius:12px;border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.psstats b{font-size:16px}
+.psgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.pscol{padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.psh{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.psh.good{color:var(--good)}.psh.bad{color:var(--bad)}
+.pspt{display:flex;flex-direction:column;gap:1px;padding:7px 10px;border-radius:10px;border-left:3px solid}
+.pspt.good{background:rgba(62,230,160,.07);border-color:var(--good)}
+.pspt.bad{background:rgba(255,92,122,.07);border-color:var(--bad)}
+.pspt b{font-size:13px}
+.psmast{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.psm{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 6px;border-radius:12px;background:var(--card2);border:1px solid transparent;text-align:center}
+.psm.on{border-color:rgba(124,108,255,.55)}
+.psm .ic{width:40px;height:40px;border-radius:11px}
+.psbox .minib img{width:26px;height:26px;border-radius:7px}
+.psbox .minib img.rn2{width:18px;height:18px}.psbox .minib img.sp2{width:22px;height:22px}
+.psgames{display:flex;flex-direction:column;gap:5px}
+.psg{display:grid;grid-template-columns:auto minmax(0,1.2fr) 110px auto;gap:10px;align-items:center;padding:6px 10px;border-radius:12px;border-left:3px solid;background:var(--card2)}
+.psg.w{border-color:var(--good)}.psg.l{border-color:var(--bad)}
+.psg .ic.s{width:32px;height:32px;border-radius:9px}
+.psitems{display:flex;gap:3px}.psitems img{width:24px;height:24px;border-radius:6px}
+@media(max-width:700px){.psgrid{grid-template-columns:1fr}.psg{grid-template-columns:auto 1fr auto}.psitems{display:none}}
