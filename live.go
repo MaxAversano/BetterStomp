@@ -719,7 +719,9 @@ func loadingWidget(lobby []LobbyPlayer, o OverlaySettings) OWidget {
 			}
 			r.RankCol = tierCol[p.Tier]
 		}
-		if g := p.Wins + p.Losses; g > 0 {
+		if p.Losses == 0 && p.Wins > 0 { // sconfitte non disponibili: niente win rate finto
+			r.Games = fmt.Sprintf("%d vittorie", p.Wins)
+		} else if g := p.Wins + p.Losses; g > 0 {
 			wr := float64(p.Wins) / float64(g)
 			r.WR = fmt.Sprintf("%d%%", int(wr*100+0.5))
 			r.Games = fmt.Sprintf("%d partite", g)

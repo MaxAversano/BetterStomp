@@ -556,17 +556,26 @@ body.csfocus .side{display:none}
 .cshead h1{margin:0;font-size:22px}
 .banic{width:24px;height:24px;border-radius:6px;filter:grayscale(.6);opacity:.85}
 .autoimp{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);padding-left:14px;border-left:1px solid var(--line)}
-.cs3{display:grid;grid-template-columns:250px minmax(0,1fr) 230px;gap:14px;align-items:start}
-.csteam{padding:12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.cs3{display:grid;grid-template-columns:280px minmax(0,1fr) 280px;gap:14px;align-items:start}
+.csteam{padding:12px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0}
 .csth{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:2px 4px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}
 .csth.ally{color:#38D6FF}.csth.enemy{color:#FF5C7A}
-.csp{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:12px;cursor:pointer;border:1px solid transparent}
+.csp{display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:10px;row-gap:5px;align-items:center;padding:8px;border-radius:12px;cursor:pointer;border:1px solid transparent}
 .csp:hover{background:var(--card2)}
 .csp.me{background:var(--card2);border-color:rgba(56,214,255,.35)}
 .csp.opp{background:var(--card2);border-color:rgba(255,92,122,.4)}
-.cpic{width:40px;height:40px;border-radius:12px;overflow:hidden;background:var(--card2);display:grid;place-items:center;flex:none;color:var(--dim);font-weight:800}
+.cpic{width:44px;height:44px;border-radius:12px;overflow:hidden;background:var(--card2);display:grid;place-items:center;flex:none;color:var(--dim);font-weight:800}
 .cpic img{width:100%;height:100%;object-fit:cover}
-.csp .nm{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.csp .nm{font-weight:750;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cmain{min-width:0;display:flex;flex-direction:column;gap:3px}
+.cmain .l1,.cmain .l2{display:flex;align-items:baseline;gap:6px;min-width:0}
+.cmain .ps{font-size:11px;color:var(--dim);flex:none}
+.cmain .rkt{font-size:12px;white-space:nowrap;flex:none}
+.cmain .who{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cmain .wrt{font-size:11.5px;white-space:nowrap;flex:none}
+.cfoot{grid-column:2;display:flex;flex-direction:column;gap:4px;min-width:0}
+.cfoot .tags{margin-top:0}
+.cfoot .minib{margin-top:0}
 .csp .rk{text-align:right;font-size:12px;white-space:nowrap}
 .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
@@ -579,8 +588,11 @@ body.csfocus .side{display:none}
 .cscenter .cstool{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .cshero{padding:16px 18px}
 .bansg{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 2px;border-radius:10px;background:var(--card2)}
-@media (max-width:1250px){.cs3{grid-template-columns:230px minmax(0,1fr)}.csteam.enemy{grid-column:1}}
+@media (max-width:1250px){.cs3{grid-template-columns:270px minmax(0,1fr)}.csteam.enemy{grid-column:1}}
 .cscenter .otgrid{grid-template-columns:minmax(0,1fr)}
+@container cscenter (min-width:720px){.cscenter .otgrid{grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}}
+.cscenter .cbcard{padding:14px}
+.cscenter .cshero{padding:14px 16px}
 .cscenter .impbar{display:none}
 .cscenter{min-width:0;container:cscenter/inline-size}
 
@@ -678,3 +690,11 @@ body.csfocus .side{display:none}
 .psg .ic.s{width:32px;height:32px;border-radius:9px}
 .psitems{display:flex;gap:3px}.psitems img{width:24px;height:24px;border-radius:6px}
 @media(max-width:700px){.psgrid{grid-template-columns:1fr}.psg{grid-template-columns:auto 1fr auto}.psitems{display:none}}
+/* build in champion select: rune più compatte, così rune e oggetti stanno affiancati */
+.cscenter .rboard{gap:18px}
+.cscenter .rb-col{gap:9px}
+.cscenter .rb-row{gap:8px}
+.cscenter .rb-row img{width:32px;height:32px}
+.cscenter .rb-row.ks img{width:40px;height:40px}
+.cscenter .rb-row.sh{gap:10px}.cscenter .rb-row.sh img{width:20px;height:20px}
+.cscenter .rsets{flex-wrap:wrap}

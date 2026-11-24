@@ -51,7 +51,7 @@ func csPlayerData(puuid string) *csCacheEntry {
 	}
 	csMu.Unlock()
 	c := &csCacheEntry{at: time.Now()}
-	c.rank = fetchRanked("/lol-ranked/v1/ranked-stats/" + puuid)["RANKED_SOLO_5x5"]
+	c.rank = soloRank(puuid)
 	var sm struct {
 		Level int    `json:"summonerLevel"`
 		ID    int64  `json:"summonerId"`
@@ -155,7 +155,7 @@ func champSelectMates() []CSMate {
 			if champ > 0 && m.ChampG == 0 && len(d.champs) >= 10 {
 				m.Tags = append(m.Tags, "Mai giocato di recente")
 			}
-			if g := m.Wins + m.Losses; g >= 20 && m.Level > 0 && m.Level < 80 && float64(m.Wins)/float64(g) >= 0.62 {
+			if g := m.Wins + m.Losses; m.Losses > 0 && g >= 20 && m.Level > 0 && m.Level < 80 && float64(m.Wins)/float64(g) >= 0.62 {
 				m.Tags = append(m.Tags, "Possibile smurf")
 			}
 			res[i] = m

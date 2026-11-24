@@ -335,7 +335,7 @@ func playerSheet(puuid string, champ int, pos string) CSPlayerSheet {
 			strong("Nel suo ruolo", fmt.Sprintf("%.0f%% delle partite in %s", sh.RoleShare*100, roleIT(pos)))
 		}
 	}
-	if g := sh.Wins + sh.Losses; g >= 30 {
+	if g := sh.Wins + sh.Losses; sh.Losses > 0 && g >= 30 {
 		wr := float64(sh.Wins) / float64(g)
 		if wr >= 0.55 {
 			strong("Stagione positiva", fmt.Sprintf("%.0f%% in Solo/Duo su %d partite", wr*100, g))
@@ -378,4 +378,30 @@ func playerSheet(puuid string, champ int, pos string) CSPlayerSheet {
 
 func roleIT(r string) string {
 	return map[string]string{"TOP": "Top", "JUNGLE": "Jungle", "MIDDLE": "Mid", "BOTTOM": "ADC", "UTILITY": "Support"}[r]
+}
+
+// Il client, per gli altri giocatori, a volte restituisce le vittorie ma non le sconfitte
+// (win rate finto al 100%): in quel caso chiedo il rango alla Riot API, se c'è la chiave.
+func soloRank(puuid string) RankedQueue {
+	rq := fetchRanked("/lol-ranked/v1/ranked-stats/" + puuid)["RANKED_SOLO_5x5"]
+	if rq.Losses > 0 || rq.Wins == 0 || strings.TrimSpace(getSettings().RiotAPIKey) == "" {
+		return rq
+	}
+	var list []struct {
+		Queue  string `json:"queueType"`
+		Tier   string `json:"tier"`
+		Rank   string `json:"rank"`
+		LP     int    `json:"leaguePoints"`
+		Wins   int    `json:"wins"`
+		Losses int    `json:"losses"`
+	}
+	if riot.get(platHost(getSettings().Region)+"/lol/league/v4/entries/by-puuid/"+puuid, &list) != nil {
+		return rq
+	}
+	for _, e := range list {
+		if e.Queue == "RANKED_SOLO_5x5" {
+			return RankedQueue{QueueType: e.Queue, Tier: e.Tier, Division: e.Rank, LeaguePoints: e.LP, Wins: e.Wins, Losses: e.Losses}
+		}
+	}
+	return rq
 }

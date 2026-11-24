@@ -367,7 +367,7 @@ func lcuLoop() {
 					if puuid != "" {
 						rq, ok := rankCache[puuid]
 						if !ok {
-							rq = fetchRanked("/lol-ranked/v1/ranked-stats/" + puuid)["RANKED_SOLO_5x5"]
+							rq = soloRank(puuid)
 							rankCache[puuid] = rq
 						}
 						lp.Tier, lp.Division, lp.LP, lp.Wins, lp.Losses = rq.Tier, rq.Division, rq.LeaguePoints, rq.Wins, rq.Losses
