@@ -722,17 +722,28 @@ function selState(){
   const c = S.st?.client, cs = c?.champSelect, u = S.ui;
   const mine = [], theirs = [];
   let myPos = '', myChamp = 0, meIdx = 0;
+  const lobby = !cs && c?.phase==='InProgress' ? (c.lobby||[]) : [];
   if(cs){
     cs.myTeam.forEach((p,i)=>{ const ch = p.championId||p.championPickIntent; const me = p.cellId===cs.localPlayerCellId; if(me) meIdx=i;
-      mine.push({champ:u.over['a'+i]||ch, pos:p.assignedPosition?.toUpperCase()||'', name:p.gameName||'', me}); });
-    cs.theirTeam.forEach((p,i)=>theirs.push({champ:u.over['e'+i]||p.championId, pos:''}));
+      mine.push({champ:u.over['a'+i]||ch, pos:p.assignedPosition?.toUpperCase()||'', name:p.gameName||'', me, puuid:p.puuid||''}); });
+    cs.theirTeam.forEach((p,i)=>theirs.push({champ:u.over['e'+i]||p.championId, pos:'', puuid:p.puuid||'', name:p.gameName||''}));
     myPos = cs.myPosition; myChamp = cs.myChampion;
+    if(myPos) u.csPos = myPos; // lo ricordo per la partita
+    u.csPosOf = Object.fromEntries(mine.filter(x=>x.puuid&&x.pos).map(x=>[x.puuid,x.pos]));
+  } else if(lobby.length){
+    // in partita il client mostra tutti e dieci i giocatori, nemici compresi
+    const mePu = S.st?.client?.summoner?.puuid || S.profile?.puuid || '';
+    const rk = p => ({tier:p.tier, division:p.division, lp:p.lp, wins:p.wins, losses:p.losses});
+    lobby.filter(p=>p.team===1).forEach((p,i)=>{ const me = !!mePu && p.puuid===mePu; if(me) meIdx=i;
+      mine.push({champ:u.over['a'+i]||p.champion, pos:u.csPosOf?.[p.puuid]||'', name:p.name||'', me, puuid:p.puuid||'', rank:rk(p)}); });
+    lobby.filter(p=>p.team===2).forEach((p,i)=>theirs.push({champ:u.over['e'+i]||p.champion, pos:'', name:p.name||'', puuid:p.puuid||'', rank:rk(p)}));
+    myPos = u.csPos||''; myChamp = mine[meIdx]?.champ||0;
   } else {
     for(let i=0;i<5;i++){ mine.push({champ:u.over['a'+i]||0,pos:'',me:i===0}); theirs.push({champ:u.over['e'+i]||0}); }
   }
   if(u.over['a'+meIdx]) myChamp = u.over['a'+meIdx];
   const posMap = {top:'TOP',jungle:'JUNGLE',middle:'MIDDLE',bottom:'BOTTOM',utility:'UTILITY'};
-  return {cs, mine, theirs, meIdx, myPos: u.spos || posMap[(myPos||'').toLowerCase()] || (S.profile?.roles?.main) || 'MIDDLE', myChamp, mode: queueMode(c?.queueId)};
+  return {cs, ingame: lobby.length>0, mine, theirs, meIdx, myPos: u.spos || posMap[(myPos||'').toLowerCase()] || (S.profile?.roles?.main) || 'MIDDLE', myChamp, mode: queueMode(c?.queueId)};
 }
 function queueMode(q){ return {420:'ranked',440:'flex',400:'normal',430:'normal',490:'normal',450:'aram',2400:'mayhem',1700:'arena',1710:'arena',900:'urf',1900:'urf'}[q] || S.ui.smode || 'ranked'; }
 
@@ -761,16 +772,16 @@ function updateSelect(force, soft){
   if(!u.soppManual){ const g = enemies.find(e=>u.roleMap?.[e]===s.myPos); u.sopp = g||0; }
   const sig = JSON.stringify([s.mine,s.theirs,s.myPos,s.mode,u.skind,u.sopp,s.cs?.bans,s.myChamp,u.stab,u.selTier,u.matesAt]);
   const c = S.st?.client;
-  $('#selphase').textContent = s.cs ? (s.cs.timer?.phase==='FINALIZATION'?'Finalizzazione':s.cs.timer?.phase==='BAN_PICK'?'Ban e scelte':'In corso')+(s.cs.timer?.adjustedTimeLeftInPhase>0?` · ${Math.ceil(s.cs.timer.adjustedTimeLeftInPhase/1000)}s`:'') : 'Modalità manuale';
+  $('#selphase').textContent = s.ingame ? 'In partita' : s.cs ? (s.cs.timer?.phase==='FINALIZATION'?'Finalizzazione':s.cs.timer?.phase==='BAN_PICK'?'Ban e scelte':'In corso')+(s.cs.timer?.adjustedTimeLeftInPhase>0?` · ${Math.ceil(s.cs.timer.adjustedTimeLeftInPhase/1000)}s`:'') : 'Modalità manuale';
   if(c?.imported && c.imported!==u.lastImp){ u.lastImp=c.imported; toast(c.imported); }
   if(!force && sig===u.ssig) return;
   u.ssig = sig;
   const mates = u.mates||[];
   const rankTxt2 = m => m?.tier ? `${TIER_IT[m.tier]||m.tier}${['MASTER','GRANDMASTER','CHALLENGER'].includes(m.tier)?'':' '+(m.division||'')}` : 'Senza rango';
   put($('#allies'), `<div class="csth ally">La tua squadra</div>` + s.mine.map((p,i)=>{
-      const cell = s.cs?.myTeam?.[i]?.cellId, m = mates.find(x=>x.cellId===cell);
+      const cell = s.cs?.myTeam?.[i]?.cellId, m = (s.cs && mates.find(x=>x.cellId===cell)) || (p.rank ? {...p.rank, name:p.name} : null);
       const g = m ? m.wins+m.losses : 0, wr = g ? m.wins/g : 0;
-      const puuid = s.cs?.myTeam?.[i]?.puuid || '', known = knownMate(m?.name||p.name);
+      const puuid = p.puuid || '', known = knownMate(m?.name||p.name);
       return `<div class="csp ${p.me?'me':''}" data-act="csplayer" data-k="a${i}" data-puuid="${esc(puuid)}" data-champ="${p.champ||0}" data-pos="${p.pos}" title="${puuid?'Clicca per la scheda del giocatore':'Clicca per correggere il campione'}">
         <div class="cpic" data-act="override" data-k="a${i}" title="Cambia campione">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
         <div class="sp" style="min-width:0"><div class="nm">${p.champ?esc(champ(p.champ).name):'<span class="dim">In scelta…</span>'} <span class="tiny dim">${POS[p.pos]||''}</span></div>
@@ -782,16 +793,17 @@ function updateSelect(force, soft){
   const b = u.selData;
   const mu = id => [...(b?.best||[]),...(b?.worst||[])].find(x=>x.champion===id);
   put($('#enemies'), `<div class="csth enemy">Squadra nemica</div>` + s.theirs.map((p,i)=>{ const x = p.champ && mu(p.champ), opp = p.champ && p.champ===u.sopp;
-      const puuid = s.cs?.theirTeam?.[i]?.puuid || '';
+      const puuid = p.puuid || '', er = p.rank;
       return `<div class="csp ${opp?'opp':''}" data-act="csplayer" data-k="e${i}" data-puuid="${esc(puuid)}" data-champ="${p.champ||0}" data-pos="${u.roleMap?.[p.champ]||''}" title="${puuid?'Clicca per la scheda del giocatore':'Clicca per correggere il campione'}">
         <div class="cpic" data-act="override" data-k="e${i}" title="Cambia campione">${p.champ?`<img src="${cImg(p.champ)}">`:'<span>?</span>'}</div>
         <div class="sp" style="min-width:0"><div class="nm">${p.champ?esc(champ(p.champ).name):'<span class="dim">Non ancora scelto</span>'}</div>
-          <div class="tiny dim">${p.champ?(POS[u.roleMap?.[p.champ]]||''):''}${opp?' · contro di te':''}</div>
+          <div class="tiny dim ell">${p.name?esc(p.name)+' · ':''}${p.champ?(POS[u.roleMap?.[p.champ]]||''):''}${opp?' · contro di te':''}</div>
           ${p.champ?miniBuild(p.champ, u.roleMap?.[p.champ]||'', s.mode):''}</div>
+        ${er?.tier&&er.tier!=='NONE'?`<div class="rk"><b style="color:${TIER_COL[er.tier]||'var(--muted)'}">${esc(rankTxt2(er))}</b>${er.wins+er.losses?`<div class="tiny"><b class="${er.wins/(er.wins+er.losses)>=.5?'good':'bad'}">${pct(er.wins/(er.wins+er.losses),0)}</b> <span class="dim">${er.wins+er.losses}</span></div>`:''}</div>`:''}
         ${x?`<div class="rk"><b class="${x.winRate>=.5?'good':'bad'}">${pct(x.winRate,0)}</b><div class="tiny dim">per te</div></div>`:''}</div>`; }).join('')
     + dmgBar('Danni', enemies), soft);
   const bans = [...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[])].filter(Boolean);
-  put($('#bans'), s.cs ? `<span class="dim">Ban</span>${bans.map(b=>`<img class="banic" src="${cImg(b)}" title="${esc(champ(b).name)}">`).join('')||'<span class="dim">nessuno</span>'}` : `<span class="dim">Fuori dalla champion select: clicca i ritratti per provare un matchup.</span>`, soft);
+  put($('#bans'), s.cs ? `<span class="dim">Ban</span>${bans.map(b=>`<img class="banic" src="${cImg(b)}" title="${esc(champ(b).name)}">`).join('')||'<span class="dim">nessuno</span>'}` : s.ingame ? `<span class="dim">Clicca un giocatore per la sua scheda, il ritratto per cambiare campione.</span>` : `<span class="dim">Fuori dalla champion select: clicca i ritratti per provare un matchup.</span>`, soft);
   put($('#cstool'), `<div class="seg"><button data-act="stab" data-k="build" class="${u.stab==='build'?'on':''}">Build</button><button data-act="stab" data-k="sugg" class="${u.stab==='sugg'?'on':''}">Cosa scegliere</button></div>
     ${!s.cs?`<select data-ui="smode">${opt(MODES,s.mode)}</select>`:''}
     ${isPos(s.mode)?`<select data-ui="spos">${opt(['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'].map(p=>[p,POS[p]]), s.myPos)}</select>`:''}
