@@ -205,7 +205,7 @@ func setupAPI(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/champion", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		b := resolveBuild(atoi(q.Get("id")), q.Get("pos"), q.Get("mode"), q.Get("tier"), q.Get("personal") != "0", atoi(q.Get("variant")))
+		b := resolveBuildVs(atoi(q.Get("id")), q.Get("pos"), q.Get("mode"), q.Get("tier"), q.Get("personal") != "0", atoi(q.Get("variant")), atoi(q.Get("vs")))
 		pb, has := getPersonal(atoi(q.Get("id")))
 		jsonOut(w, map[string]any{"build": b, "personal": pb, "hasPersonal": has})
 	})
@@ -251,6 +251,7 @@ func setupAPI(mux *http.ServeMux) {
 			Spells  bool   `json:"spells"`
 			Items   bool   `json:"items"`
 			Variant int    `json:"variant"`
+			Vs      int    `json:"vs"`
 			Custom  *struct {
 				Runes       *RunePage `json:"runes"`
 				Spells      []int     `json:"spells"`
@@ -265,7 +266,7 @@ func setupAPI(mux *http.ServeMux) {
 			b := BuildResult{Runes: q.Custom.Runes, Spells: q.Custom.Spells, Starting: q.Custom.Starting, Core: q.Custom.Core, Situational: q.Custom.Situational}
 			msg = importResolved(q.Champ, q.Pos, b, q.Runes, q.Spells, q.Items)
 		} else {
-			msg = importBuild(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items, q.Variant)
+			msg = importBuildVs(q.Champ, q.Pos, q.Mode, q.Runes, q.Spells, q.Items, q.Variant, q.Vs)
 		}
 		jsonOut(w, map[string]string{"message": msg})
 	})

@@ -71,6 +71,11 @@ func setPersonal(champ int, b PersonalBuild) error {
 
 // build finale: statistiche + build personale + rune consigliate dal client
 func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant int) BuildResult {
+	return resolveBuildVs(champ, pos, mode, tier, usePersonal, variant, 0)
+}
+
+// vs: avversario di corsia, per la build adattata al matchup
+func resolveBuildVs(champ int, pos, mode, tier string, usePersonal bool, variant, vs int) BuildResult {
 	if mode == "" {
 		mode = "ranked"
 	}
@@ -96,6 +101,12 @@ func resolveBuild(champ int, pos, mode, tier string, usePersonal bool, variant i
 		b.Position = pos
 	}
 	b.OtpPending = otpPending
+	if vs > 0 && !getSettings().OpggOff {
+		if b.Champion == 0 {
+			b.Champion = champ
+		}
+		b = applyMatchup(b, vs)
+	}
 	if len(otp) > 0 {
 		var mine []ProGame
 		for _, g := range otp {

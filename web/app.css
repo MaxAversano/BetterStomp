@@ -627,3 +627,6 @@ body.frameless .rz{display:block}
 .sgr .wr{font-size:14px}
 .sgw{display:flex;gap:3px;margin-top:3px}.sgw .ic.xs{width:16px;height:16px;border-radius:5px}
 .tg.ap{background:rgba(80,140,255,.18);color:#8db4ff}.tg.ad{background:rgba(255,120,80,.18);color:#ffad8f}
+
+.mubox{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:rgba(124,108,255,.08);border:1px solid rgba(124,108,255,.25)}
+.mt4{margin-top:4px}

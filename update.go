@@ -47,7 +47,7 @@ func updateInfo() map[string]any {
 func updateLoop() {
 	time.Sleep(15 * time.Second)
 	for {
-		wait := 3 * time.Hour
+		wait := 30 * time.Minute
 		if err := checkUpdate(); err != nil {
 			log.Printf("aggiornamenti: %v", err)
 			wait = 10 * time.Minute // riprova presto

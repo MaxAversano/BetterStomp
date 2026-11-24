@@ -449,7 +449,8 @@ func maybeAutoImport(cs *ChampSelect) {
 	if !cs.Locked || cs.MyChampion == 0 {
 		return
 	}
-	key := fmt.Sprintf("%d|%s", cs.MyChampion, cs.MyPosition)
+	vs := laneOpponent(cs, lcuPosToRiot(cs.MyPosition))
+	key := fmt.Sprintf("%d|%s|%d", cs.MyChampion, cs.MyPosition, vs) // se poi sceglie l'avversario, reimporta adattata
 	if key == lastImported {
 		return
 	}
@@ -459,7 +460,8 @@ func maybeAutoImport(cs *ChampSelect) {
 		return
 	}
 	mode := queueGroup(getClientState().QueueID, "")
-	res := importBuild(cs.MyChampion, lcuPosToRiot(cs.MyPosition), mode, s.AutoRunes, s.AutoSpells, s.AutoItems, 0)
+	pos := lcuPosToRiot(cs.MyPosition)
+	res := importBuildVs(cs.MyChampion, pos, mode, s.AutoRunes, s.AutoSpells, s.AutoItems, 0, vs)
 	stateMu.Lock()
 	clientState.Imported = res
 	stateMu.Unlock()
@@ -484,10 +486,27 @@ func onPhaseChange(prev, phase string) {
 // ---------- Import di rune, incantesimi e set di oggetti ----------
 
 func importBuild(champ int, pos, mode string, runes, spells, items bool, variant int) string {
+	return importBuildVs(champ, pos, mode, runes, spells, items, variant, 0)
+}
+
+func importBuildVs(champ int, pos, mode string, runes, spells, items bool, variant, vs int) string {
 	if !lcu.isConnected() {
 		return "Client di League non connesso"
 	}
-	return importResolved(champ, pos, resolveBuild(champ, pos, mode, "", true, variant), runes, spells, items)
+	return importResolved(champ, pos, resolveBuildVs(champ, pos, mode, "", true, variant, vs), runes, spells, items)
+}
+
+// avversario di corsia: il nemico che di solito gioca nel mio ruolo
+func laneOpponent(cs *ChampSelect, pos string) int {
+	if cs == nil || pos == "" || getSettings().OpggOff {
+		return 0
+	}
+	for _, p := range cs.TheirTeam {
+		if p.ChampionID > 0 && opgg.mainPos(p.ChampionID) == pos {
+			return p.ChampionID
+		}
+	}
+	return 0
 }
 
 // importa una build già pronta (es. quella di un pro scelta in champion select)

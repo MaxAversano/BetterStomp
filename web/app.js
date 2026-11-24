@@ -474,7 +474,7 @@ function drawChampGrid(soft){
 async function pageChampion(m, r, soft){
   const c = S.champList.find(x=>x.id===r[1]); if(!c){ location.hash='#/campioni'; return; }
   const key = +c.key, u = S.ui;
-  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.editing=false; u.variant=0; u.abSel=0; u.runeSel=null; u.runeTree=false; u.ksSel=undefined; u.runeSet=0; }
+  if(u.chId!==c.id){ u.chId=c.id; u.chPos=''; u.chVs=0; u.editing=false; u.variant=0; u.abSel=0; u.runeSel=null; u.runeTree=false; u.ksSel=undefined; u.runeSet=0; }
   u.chMode = u.chMode||u.cmode||S.settings.defaultMode||'ranked'; u.chTier = u.chTier||u.ctier||'auto';
   if(soft && !$('#chbody')) soft = false;
   if(!soft) m.innerHTML = `<div class="page"><div class="champhero"><div class="bg" style="background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${c.id}_0.jpg')"></div>
@@ -486,7 +486,7 @@ async function pageChampion(m, r, soft){
     <div id="chbody"><div class="loading"><span class="spinner"></span>Calcolo la build…</div></div></div>`;
   let data, detail;
   try{
-    [data, detail] = await Promise.all([api(`/api/champion?id=${key}&mode=${u.chMode}&tier=${u.chTier}&pos=${u.chPos}`), u.chDetail?.id===c.id ? u.chDetail.d : api(`/api/static/champion/${c.id}.json`).catch(()=>null)]);
+    [data, detail] = await Promise.all([api(`/api/champion?id=${key}&mode=${u.chMode}&tier=${u.chTier}&pos=${u.chPos}&vs=${isPos(u.chMode)?(u.chVs||0):0}`), u.chDetail?.id===c.id ? u.chDetail.d : api(`/api/static/champion/${c.id}.json`).catch(()=>null)]);
   }catch(e){ if(!soft) $('#chbody').innerHTML = `<div class="card"><div class="empty">${esc(e.message)}</div></div>`; return; }
   if(route()[1]!==c.id || (soft && u.editing)) return;
   u.chData = data; u.chKey = key; u.chDetail = {id:c.id, d:detail};
@@ -502,7 +502,9 @@ async function pageChampion(m, r, soft){
   put($('#chsrc'), b.source?.startsWith('OP.GG') ? `Dati OP.GG${b.source==='OP.GG+'?' + partite rilevate (alternative)':''} · patch ${esc(b.patch)}` : b.source==='stats' ? `Patch ${esc(b.patch)}${b.widened?' · tutti i ranghi':''}` : '', soft);
   const prof = (S.profile?.season||[]).find(x=>x.champion===key) || S.profile?.champs?.find(x=>x.champion===key);
   put($('#chbody'), `<div class="card cbcard"><div class="ctitle"><h2>Build ${b.personal?'<span class="badge goldc">Personale</span>':''}</h2><span class="sp"></span>
+        ${isPos(u.chMode)?`<select data-ui="chVs" data-num="1" title="Build adattata contro un avversario"><option value="0">Contro: tutti</option>${Object.values(S.champs||{}).filter(x=>+x.key!==key).sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${x.key}" ${+u.chVs===+x.key?'selected':''}>Contro ${esc(x.name)}</option>`).join('')}</select>`:''}
         <button class="btn ghost sm" data-act="editbuild">${u.editing?'Chiudi editor':'✎ Build personale'}</button></div>
+        ${b.matchup?`<div class="mubox" style="margin-bottom:12px">${ci(b.matchup.opponent,'s')}<div class="sp"><div class="small"><b>Build contro ${esc(champ(b.matchup.opponent).name)}</b> · <b class="${b.matchup.winRate>=.5?'good':'bad'}">${pct(b.matchup.winRate)}</b> <span class="dim">su ${num(b.matchup.games)} partite (tutti i ranghi)</span></div>${b.matchup.tip?`<div class="tiny muted mt4">💡 ${esc(b.matchup.tip)}</div>`:''}</div></div>`:''}
         <div id="buildbox">${buildHTML(b, data.personal, u.variant, 'variant')}</div></div>
     <div class="grid2 mt16">
       <div class="card"><h2>Matchup</h2>${matchList('Vince contro',b.best,'good')}${matchList('Soffre contro',b.worst,'bad')}
@@ -798,7 +800,7 @@ function updateSelect(force, soft){
     u.sbuildKey = '';
     return;
   }
-  const bk = `${s.myChamp}|${s.myPos}|${s.mode}|${u.selTier}`;
+  const bk = `${s.myChamp}|${s.myPos}|${s.mode}|${u.selTier}|${u.sopp||0}`;
   if(bk!==u.sbuildKey || !$('#buildbox')){ u.sbuildKey=bk; loadSelBuild(s, false); }
   else if(b) drawSelHeader(s);
 }
@@ -919,7 +921,7 @@ async function loadSelBuild(s, soft){
   const u = S.ui;
   if(!s.myChamp){ put(el, `<div class="card"><div class="empty"><div class="big">🎯</div>Scegli (o passa sopra a) un campione: qui comparirà la build da importare con un clic.<br><span class="dim">Oppure apri "Cosa scegliere" per i campioni migliori contro il tuo avversario.</span></div></div>`, soft); return; }
   if(!soft) el.innerHTML = `<div class="loading"><span class="spinner"></span>Preparo la build…</div>`;
-  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=${u.selTier}&pos=${isPos(s.mode)?s.myPos:''}`); }catch(e){ el.innerHTML = esc(e.message); return; }
+  let d; try{ d = await api(`/api/champion?id=${s.myChamp}&mode=${s.mode}&tier=${u.selTier}&pos=${isPos(s.mode)?s.myPos:''}&vs=${isPos(s.mode)?(u.sopp||0):0}`); }catch(e){ el.innerHTML = esc(e.message); return; }
   if(!$('#csbody')) return;
   const b = d.build; u.selBuild = {champ:s.myChamp, pos:b.position||s.myPos, mode:s.mode}; u.selData = b;
   // la vista build è la stessa della pagina campione (keystone, set, import separati)
@@ -930,13 +932,15 @@ async function loadSelBuild(s, soft){
 }
 function drawSelHeader(s){
   const u = S.ui, b = u.selData, el = $('#cshero'); if(!el || !b) return;
-  const opp = u.sopp ? [...(b.best||[]),...(b.worst||[])].find(x=>x.champion===u.sopp) : null;
+  const mm = b.matchup && b.matchup.opponent===u.sopp ? b.matchup : null;
+  const opp = mm ? {winRate:mm.winRate, games:mm.games} : u.sopp ? [...(b.best||[]),...(b.worst||[])].find(x=>x.champion===u.sopp) : null;
   const banned = new Set([...(s.cs?.bans?.myTeamBans||[]),...(s.cs?.bans?.theirTeamBans||[]),...s.theirs.map(x=>x.champ),...s.mine.map(x=>x.champ)]);
   const banSugg = (b.worst||[]).filter(x=>!banned.has(x.champion)).slice(0,5);
   put(el, `<div class="row" style="gap:16px;align-items:center">${ci(s.myChamp,'l')}
       <div class="sp"><h2 style="margin:0">${esc(champ(s.myChamp).name)} <span class="dim small">${POS[b.position]||''}</span></h2>
         <div class="small muted">${b.games?`${pct(b.winRate)} WR · ${num(b.games)} partite`:'Pochi dati per questo filtro'}${u.sopp?` · vs ${esc(champ(u.sopp).name)}: ${opp?`<b class="${opp.winRate>=.5?'good':'bad'}">${pct(opp.winRate)}</b> <span class="dim">(${opp.games})</span>`:'<span class="dim">matchup senza dati</span>'}`:''}</div></div>
       <button class="btn" data-act="import" ${S.st?.client?.connected?'':'disabled title="Apri il client di League"'}>⇩ Importa tutto</button></div>
+    ${mm?`<div class="mubox mt12">${ci(u.sopp,'s')}<div class="sp"><div class="small"><b>Build adattata contro ${esc(champ(u.sopp).name)}</b> <span class="dim">· rune, incantesimi, oggetti e abilità di chi gioca questo matchup (${num(mm.games)} partite, tutti i ranghi)</span>${mm.advantage&&mm.advantage!=='EVEN'?` · <b class="${/OPP/i.test(mm.advantage)?'bad':'good'}">${/OPP/i.test(mm.advantage)?'corsia sfavorevole':'corsia favorevole'}</b>`:mm.advantage==='EVEN'?' · <span class="dim">corsia equilibrata</span>':''}</div>${mm.tip?`<div class="tiny muted mt4">💡 ${esc(mm.tip)}</div>`:''}</div></div>`:''}
     ${banSugg.length?`<div class="row gap6 mt12 small"><span class="dim">Ban consigliati</span>${banSugg.map(x=>`<span class="bansg" title="${esc(champ(x.champion).name)}: ${pct(x.winRate)} per te">${ci(x.champion,'s')}<b class="bad">${pct(x.winRate,0)}</b></span>`).join('')}</div>`:''}`, true);
 }
 function autoBox(bare){
@@ -1264,9 +1268,9 @@ const actions = {
   chpos(t){ S.ui.chPos=t.dataset.p; render(); },
   tpos(t){ S.ui.tpos=t.dataset.p; render(); },
   tsort(t){ const k=t.dataset.k; if(S.ui.tsort===k) S.ui.tdir=-(S.ui.tdir||-1); else { S.ui.tsort=k; S.ui.tdir=k==='name'?1:-1; } drawTier(); },
-  async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:false,spells:true,items:true,variant:S.ui.variant||0}); const rr=curRunes(); if(rr) await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,runes:true,spells:false,items:false,custom:{runes:rr}}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
+  async import(){ const d=S.ui.chData; try{ const r=await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,mode:S.ui.chMode,runes:false,spells:true,items:true,variant:S.ui.variant||0,vs:d.build.matchup?.opponent||0}); const rr=curRunes(); if(rr) await api('/api/import',{champ:S.ui.chKey,pos:d.build.position,runes:true,spells:false,items:false,custom:{runes:rr}}); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
   async selimport(){ const b=S.ui.selBuild; if(!b) return; const pk=S.ui.selPick||{t:'var',i:0};
-    const body={champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true,variant:pk.t==='var'?pk.i:0};
+    const body={champ:b.champ,pos:b.pos,mode:b.mode,runes:true,spells:true,items:true,variant:pk.t==='var'?pk.i:0,vs:S.ui.sopp||0};
     if(pk.t==='pro'){ const v=selView(S.ui.selData); body.custom={runes:v.runes,spells:v.spells,starting:v.starting,core:v.core,situational:v.situational}; }
     try{ const r=await api('/api/import',body); toast(r.message||'Fatto'); }catch(e){ toast(e.message); } },
   stab(t){ S.ui.stab=t.dataset.k; S.ui.ssig=''; $('#csbody').innerHTML=''; updateSelect(true); },
