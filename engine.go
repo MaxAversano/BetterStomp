@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -312,20 +310,22 @@ func newDB(p string) *DB {
 }
 
 type Engine struct {
-	legacy    *DB // archivio raccolto dalla versione precedente di BetterStomp
-	mu        sync.RWMutex
-	remote    *DB // statistiche raccolte dal server (sempre acceso)
-	remoteErr string
-	remoteAt  time.Time
-	db        *DB
-	prev      *DB
-	pools     map[string][]string
-	lastErr   string
-	running   bool
-	started   time.Time
-	session   int
-	cache     map[string]cachedBucket
-	dirty     bool
+	legacy     *DB // archivio raccolto dalla versione precedente di BetterStomp
+	mu         sync.RWMutex
+	remote     *DB // statistiche raccolte dal server (sempre acceso)
+	remoteErr  string
+	remoteAt   time.Time
+	remoteLive int   // partite sul server secondo l'ultimo controllo (ogni minuto)
+	remoteRun  int64 // ultima esecuzione della raccolta sul server
+	db         *DB
+	prev       *DB
+	pools      map[string][]string
+	lastErr    string
+	running    bool
+	started    time.Time
+	session    int
+	cache      map[string]cachedBucket
+	dirty      bool
 }
 
 type cachedBucket struct {
@@ -2018,6 +2018,7 @@ type EngineStatus struct {
 	KeyState    string `json:"keyState"`
 	Prev        int    `json:"prev"`
 	Remote      int    `json:"remote"`
+	RemoteRun   int64  `json:"remoteRun"`
 	RemoteAt    int64  `json:"remoteAt"`
 	RemoteErr   string `json:"remoteErr"`
 	HasRemote   bool   `json:"hasRemote"`
@@ -2041,6 +2042,10 @@ func (e *Engine) Status() EngineStatus {
 	if e.remote != nil {
 		st.Remote = e.remote.Total
 	}
+	if e.remoteLive > st.Remote {
+		st.Remote = e.remoteLive
+	}
+	st.RemoteRun = e.remoteRun
 	if !e.remoteAt.IsZero() {
 		st.RemoteAt = e.remoteAt.Unix()
 	}
@@ -2134,7 +2139,7 @@ func remoteLoop() {
 	first := true
 	for {
 		if !first {
-			time.Sleep(5 * time.Minute)
+			time.Sleep(time.Minute)
 		}
 		first = false
 		for !staticReady() {
@@ -2165,14 +2170,32 @@ func remoteLoop() {
 		if !strings.HasSuffix(base, ".php") {
 			base += "/data.php"
 		}
-		u := base + "?k=" + url.QueryEscape(s.RemoteToken) + "&patch=" + url.QueryEscape(patch)
-		// prima il file esportato direttamente (sempre aggiornato), poi data.php
-		h := sha256.Sum256([]byte(s.RemoteToken))
-		direct := strings.TrimSuffix(base, "/data.php") + "/dati_" + hex.EncodeToString(h[:])[:16] + "/export_" + patch + ".json"
-		b, err := httpGetBytes(direct)
-		if err != nil || len(b) < 2 || b[0] != '{' {
-			b, err = httpGetBytes(u)
+		// ogni minuto solo lo stato (pochi byte): il conteggio si aggiorna quasi in tempo reale
+		var stt struct {
+			Patch   string `json:"patch"`
+			Total   int    `json:"total"`
+			LastRun int64  `json:"lastRun"`
 		}
+		if sb, err := httpGetBytes(base + "?k=" + url.QueryEscape(s.RemoteToken) + "&status=1"); err == nil && json.Unmarshal(sb, &stt) == nil {
+			engine.mu.Lock()
+			if stt.Patch == patch {
+				engine.remoteLive = stt.Total
+			}
+			engine.remoteRun = stt.LastRun
+			engine.mu.Unlock()
+		}
+		// le statistiche complete (decine di MB) solo ogni 5 minuti e solo se sono cambiate
+		engine.mu.RLock()
+		cur, last := 0, engine.remoteAt
+		if engine.remote != nil && engine.remote.Patch == patch {
+			cur = engine.remote.Total
+		}
+		engine.mu.RUnlock()
+		if has && time.Since(last) < 5*time.Minute || has && stt.Total > 0 && stt.Total == cur {
+			continue
+		}
+		u := base + "?k=" + url.QueryEscape(s.RemoteToken) + "&patch=" + url.QueryEscape(patch)
+		b, err := httpGetBytes(u)
 		if err != nil {
 			engine.mu.Lock()
 			engine.remoteErr = "server non raggiungibile: " + err.Error()
