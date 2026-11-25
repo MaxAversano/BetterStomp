@@ -121,18 +121,18 @@ func defaultSettings() Settings {
 		Theme: "dark", Region: "euw1", AutoRunes: true, AutoSpells: true, AutoItems: true,
 		FlashKey: "F", DefaultMode: "ranked", DefaultTier: "auto", EngineEnabled: true, Animations: true,
 		Overlay: OverlaySettings{
-			Enabled: true, Scale: 1,
+			Enabled: true, Scale: 1, Layout: 4,
 			CS:         Widget{On: true, X: 0.9165, Y: 0.125},
-			Objectives: Widget{On: true, X: 0.9165, Y: 0.27},
+			Objectives: Widget{On: false, X: 0.9165, Y: 0.27},
 			ShowKP:     true, CSGoal: "elo", CSGoalValue: 0, CSGoalTier: "MASTER", PillScale: 0.8,
 			OCR: true, BenchAlways: true, BenchKDA: true, BenchCSM: true, BenchGPM: true, BenchLVL: true,
-			Notify: Widget{On: true, X: 0.5, Y: 0.36}, NotifySize: "medium", NotifyDur: 10, NotifyBefore: []float64{60},
+			Notify: Widget{On: false, X: 0.5, Y: 0.36}, NotifySize: "medium", NotifyDur: 10, NotifyBefore: []float64{60},
 			Camps:    Widget{On: false, X: 0.9165, Y: 0.40},
-			Buffs:    Widget{On: true, X: 0.5, Y: 0.12},
-			Deaths:   Widget{On: true, X: 0.012, Y: 0.40},
-			ItemDiff: Widget{On: true, X: 0.5, Y: 0.19},
-			Loading:  Widget{On: true, X: 0.5, Y: 0.28},
-			Minimap:  true, MinimapSize: 226, MinimapRight: 7, MinimapBottom: 13,
+			Buffs:    Widget{On: false, X: 0.5, Y: 0.12},
+			Deaths:   Widget{On: false, X: 0.012, Y: 0.40},
+			ItemDiff: Widget{On: false, X: 0.5, Y: 0.19},
+			Loading:  Widget{On: false, X: 0.5, Y: 0.28},
+			Minimap:  false, MinimapSize: 226, MinimapRight: 7, MinimapBottom: 13,
 			Timers: Timers{
 				DragonFirst: 300, DragonRespawn: 300, ElderRespawn: 360,
 				GrubsFirst: 480, HeraldFirst: 900, AtakhanFirst: 1200,
@@ -203,6 +203,13 @@ func loadSettings() {
 		d.Enabled, d.Timers, d.MinimapSize, d.MinimapRight, d.MinimapBottom, d.Minimap = s.Overlay.Enabled, s.Overlay.Timers, s.Overlay.MinimapSize, s.Overlay.MinimapRight, s.Overlay.MinimapBottom, s.Overlay.Minimap
 		d.Layout = 3
 		s.Overlay = d
+	}
+	if s.Overlay.Layout < 4 {
+		// versione 4: tolti dall'app notifiche e timer obiettivi, timer giungla e minimappa,
+		// promemoria buff, timer di respawn, differenza oggetti e statistiche squadre
+		o := &s.Overlay
+		o.Notify.On, o.Objectives.On, o.Camps.On, o.Buffs.On, o.Deaths.On, o.ItemDiff.On, o.Loading.On, o.Minimap = false, false, false, false, false, false, false, false
+		o.Layout = 4
 	}
 	settingsMu.Lock()
 	settings = s

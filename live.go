@@ -639,7 +639,7 @@ func buildOverlayModel(preview bool) OverlayModel {
 		}, o))
 	}
 	// statistiche squadre (Ctrl+T)
-	if showLoad && !preview {
+	if showLoad && !preview && o.Loading.On {
 		lobby := getClientState().Lobby
 		if len(lobby) == 0 {
 			lobby = lobbyFromLive(d)

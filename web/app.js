@@ -1087,33 +1087,21 @@ const TIMERS = [['dragonFirst','Primo drago'],['dragonRespawn','Respawn drago'],
   ['baronBuff','Durata buff Barone'],['elderBuff','Durata buff Antico'],['relicFirst','ARAM: prime vite'],['relicRespawn','ARAM: respawn vite']];
 const OVF = [
   {k:'bench', on:'cs.on', ic:'📊', n:'Benchmarking', d:'CS, oro, KP, KDA e livello confrontati con l\'elo che scegli'},
-  {k:'notify', on:'notify.on', ic:'🔔', n:'Notifiche obiettivi', d:'Avviso prima che compaiano drago, barone, araldo, larve e Atakhan'},
-  {k:'objectives', on:'objectives.on', ic:'🐉', n:'Timer obiettivi', d:'Riquadro con i tempi di drago, larve, araldo, Atakhan e barone'},
-  {k:'minimap', on:'minimap', ic:'🗺️', n:'Timer sulla minimappa', d:'Campi della giungla, obiettivi e inibitori direttamente sulla minimappa'},
-  {k:'camps', on:'camps.on', ic:'🌿', n:'Timer giungla (lista)', d:'Elenco dei campi con i respawn; in ARAM i timer delle vite'},
-  {k:'buffs', on:'buffs.on', ic:'⏳', n:'Promemoria buff', d:'Scadenza del buff del Barone e del Drago Antico'},
-  {k:'deaths', on:'deaths.on', ic:'💀', n:'Timer di respawn', d:'Quanto manca al respawn dei giocatori morti'},
-  {k:'itemDiff', on:'itemDiff.on', ic:'💰', n:'Differenza valore oggetti', d:'Tenendo premuto TAB: la tua squadra e il tuo avversario diretto'},
-  {k:'loading', on:'loading.on', ic:'👥', n:'Statistiche squadre', d:'Rango e win rate di tutti, in caricamento e con Ctrl+T'},
-  {k:'timers', ic:'⏱️', n:'Durate dei timer', d:'I tempi di spawn usati da timer e notifiche'},
 ];
 function pageOverlay(m){
   const o = S.settings.overlay;
   m.innerHTML = `<div class="page"><div class="row mb wrap"><h1>Overlay</h1><span class="sp"></span>
       <button class="btn ${o.editMode?'':'ghost'}" data-act="editmode">${o.editMode?'✓ Fine modifica':'✥ Sposta gli elementi sullo schermo'}</button>
       <label class="row b">${sw('overlay.enabled',o.enabled)} Overlay attivo</label></div>
-    <div class="card flat mb small muted">In partita <b>tieni premuto TAB</b>: puoi trascinare ogni riquadro, bloccarlo con 🔒, aprire le sue impostazioni con ⚙ o chiuderlo con ✕, e sistemare il riquadro arancione della minimappa. Funziona con League in modalità <b>Senza bordi</b>.</div>
+    <div class="card flat mb small muted">In partita <b>tieni premuto TAB</b>: puoi trascinare ogni riquadro, bloccarlo con 🔒, aprire le sue impostazioni con ⚙ o chiuderlo con ✕. Funziona con League in modalità <b>Senza bordi</b>.</div>
     <div class="grid2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)">
       <div class="col gap16"><div class="ovlist">${OVF.map(f=>`<div class="ovrow"><span class="oi">${f.ic}</span><div class="on2"><b>${f.n}</b><small>${f.d}</small></div>
           ${['bench','notify','minimap','timers'].includes(f.k)?`<button class="gear" data-act="ovset" data-k="${f.k}" title="Impostazioni">⚙</button>`:''}${f.on?sw('overlay.'+f.on, getPath(o,f.on)):''}</div>`).join('')}</div>
         <div class="card"><div class="setting"><div class="lbl"><b>Dimensione dei riquadri</b></div><input type="range" min="0.7" max="1.6" step="0.05" value="${o.scale}" data-setnum="overlay.scale" style="width:170px"></div>
           <div class="setting"><div class="lbl"><b>Riporta tutto com'era</b><small>Posizioni e durate predefinite</small></div><button class="btn ghost sm" data-act="resetoverlay">Ripristina</button></div></div>
         <div class="card"><h2>Scorciatoie in partita</h2><div class="hk">
-          <span><span class="kbd">TAB</span> (tenuto)</span><span>Sposta, blocca, imposta o chiudi i riquadri · differenza valore oggetti</span>
+          <span><span class="kbd">TAB</span> (tenuto)</span><span>Sposta, blocca, imposta o chiudi i riquadri</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">E</span></span><span>Modalità modifica fissa (senza tenere TAB)</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">1…6</span></span><span>Campo del tuo lato ripulito: 1 Blu · 2 Gromp · 3 Lupi · 4 Pappagalli · 5 Rosso · 6 Sassi (in ARAM: vite 1-4)</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">Alt</span>+<span class="kbd">1…6</span></span><span>Stesso campo, ma del lato nemico</span>
-          <span><span class="kbd">Ctrl</span>+<span class="kbd">T</span></span><span>Statistiche delle squadre</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">C</span></span><span>Benchmark completo / riassunto</span>
           <span><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">O</span></span><span>Nascondi/mostra tutto l'overlay</span></div></div>
       </div>

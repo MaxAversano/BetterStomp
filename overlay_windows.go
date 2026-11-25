@@ -149,9 +149,12 @@ func setHotkeys(on bool) {
 		}
 		return
 	}
-	for i := 1; i <= 6; i++ {
-		pRegisterHotKey.Call(ovHwnd, uintptr(i), modControl|modShift|modNoRepeat, uintptr('0'+i))
-		pRegisterHotKey.Call(ovHwnd, uintptr(10+i), modControl|modAlt|modNoRepeat, uintptr('0'+i))
+	// le scorciatoie dei campi della giungla servono solo se i timer della giungla sono accesi
+	if o := getSettings().Overlay; o.Camps.On || o.Minimap {
+		for i := 1; i <= 6; i++ {
+			pRegisterHotKey.Call(ovHwnd, uintptr(i), modControl|modShift|modNoRepeat, uintptr('0'+i))
+			pRegisterHotKey.Call(ovHwnd, uintptr(10+i), modControl|modAlt|modNoRepeat, uintptr('0'+i))
+		}
 	}
 	pRegisterHotKey.Call(ovHwnd, 21, modControl|modShift|modNoRepeat, 'O')
 	pRegisterHotKey.Call(ovHwnd, 22, modControl|modShift|modNoRepeat, 'C')
