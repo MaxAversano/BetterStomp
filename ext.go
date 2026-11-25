@@ -7,10 +7,14 @@ package main
 // cambiate), li tiene in una copia locale e all'avvio è subito pronta.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -436,6 +440,7 @@ func llBuild(champ int, pos, mode, tier string) (BuildResult, bool) {
 
 // partite recenti dei one-trick (onetricks.gg) come "pro build"
 func otGames(champ int, pos string) []ProGame {
+	otEnsure(champ)
 	ext.mu.RLock()
 	e, ok := ext.ot[champ]
 	ext.mu.RUnlock()
@@ -479,4 +484,138 @@ func extStatus() (int, int, string, int64) {
 		at = ext.at.Unix()
 	}
 	return n, len(ext.ot), ext.err, at
+}
+
+// onetricks.gg blocca le richieste dal server (HTTP 429): la pagina del campione la scarica
+// direttamente l'app, solo quando serve, e la tiene per 2 ore
+var otRunning sync.Map
+
+func otEnsure(champ int) {
+	ext.mu.RLock()
+	e, ok := ext.ot[champ]
+	ext.mu.RUnlock()
+	if ok && time.Since(time.Unix(e.At, 0)) < 2*time.Hour {
+		return
+	}
+	if _, busy := otRunning.LoadOrStore(champ, true); busy {
+		return
+	}
+	go func() {
+		defer otRunning.Delete(champ)
+		if err := otFetch(champ); err != nil {
+			log.Printf("onetricks.gg: %s: %v", champName(champ), err)
+		}
+	}()
+}
+
+func otFetch(champ int) error {
+	static.mu.RLock()
+	c, ok := static.Champs[champ]
+	static.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("campione sconosciuto")
+	}
+	req, _ := http.NewRequest("GET", "https://www.onetricks.gg/champions/builds/"+url.PathEscape(c.ID), nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html")
+	resp, err := webClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return err
+	}
+	const tag = `<script id="__NEXT_DATA__" type="application/json">`
+	i := bytes.Index(body, []byte(tag))
+	if i < 0 {
+		return fmt.Errorf("pagina senza dati")
+	}
+	rest := body[i+len(tag):]
+	j := bytes.Index(rest, []byte("</script>"))
+	if j < 0 {
+		return fmt.Errorf("pagina incompleta")
+	}
+	var nd struct {
+		Props struct {
+			PageProps struct {
+				PopRole      string `json:"popRole"`
+				MatchHistory []struct {
+					SummonerName   string          `json:"summonerName"`
+					Tier           string          `json:"tier"`
+					PlatformID     string          `json:"platformId"`
+					Timestamp      int64           `json:"timestamp"`
+					P              string          `json:"p"`
+					RegChampGameID string          `json:"regChampGameId"`
+					Details        json.RawMessage `json:"details"`
+					Timeline       json.RawMessage `json:"timeline"`
+					GameRoles      struct {
+						EnemyChampion int    `json:"enemyChampion"`
+						PlayerRole    string `json:"playerRole"`
+					} `json:"gameRoles"`
+				} `json:"matchHistory"`
+			} `json:"pageProps"`
+		} `json:"props"`
+	}
+	if err := json.Unmarshal(rest[:j], &nd); err != nil {
+		return err
+	}
+	// details e timeline arrivano come stringhe JSON (a volte come oggetti)
+	unwrap := func(raw json.RawMessage, v any) {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			json.Unmarshal([]byte(s), v)
+		} else {
+			json.Unmarshal(raw, v)
+		}
+	}
+	out := otEntry{C: champ, At: time.Now().Unix(), Role: nd.Props.PageProps.PopRole}
+	for i, m := range nd.Props.PageProps.MatchHistory {
+		if i >= 25 {
+			break
+		}
+		var d struct {
+			PlayerData struct {
+				Stats  map[string]any `json:"stats"`
+				Spell1 int            `json:"spell1Id"`
+				Spell2 int            `json:"spell2Id"`
+			} `json:"playerData"`
+		}
+		var tl struct {
+			OrderedItems []int `json:"orderedItems"`
+		}
+		unwrap(m.Details, &d)
+		unwrap(m.Timeline, &tl)
+		st := d.PlayerData.Stats
+		num := func(k string) int {
+			if v, ok := st[k].(float64); ok {
+				return int(v)
+			}
+			return 0
+		}
+		var items []int
+		for k := 0; k <= 5; k++ {
+			if v := num(fmt.Sprintf("item%d", k)); v > 0 {
+				items = append(items, v)
+			}
+		}
+		win, _ := st["win"].(bool)
+		out.G = append(out.G, otGame{N: m.SummonerName, T: m.Tier, Reg: m.PlatformID, W: win, K: num("kills"), D: num("deaths"), A: num("assists"),
+			It: items, Ord: tl.OrderedItems, KS: num("perk0"), Sub: num("perkSubStyle"), SP: []int{d.PlayerData.Spell1, d.PlayerData.Spell2},
+			Opp: m.GameRoles.EnemyChampion, Role: m.GameRoles.PlayerRole, At: m.Timestamp, P: m.P, ID: m.RegChampGameID})
+	}
+	ext.mu.Lock()
+	ext.ot[champ] = out
+	snap := struct {
+		At    int64           `json:"at"`
+		Items map[int]otEntry `json:"items"`
+	}{ext.otAt, ext.ot}
+	b, _ := json.Marshal(snap)
+	ext.mu.Unlock()
+	os.WriteFile(extPath("ot"), b, 0o644)
+	return nil
 }

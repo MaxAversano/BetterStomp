@@ -427,9 +427,8 @@ function ext_work($budget, $version) {
     if (!$champs) return 0;
     $es = load_json('ext_state.json', ['ll' => [], 'ot' => []]);
     $n = 0;
-    $otDone = false;
+    // onetricks.gg risponde 429 alle richieste dal server: le sue pagine le scarica l'app
     while (microtime(true) - $t0 < $budget) {
-        if (!$otDone) { ot_step($es, $champs); $otDone = true; $n++; continue; } // una pagina onetricks per esecuzione
         if (!ll_step($es, $champs)) break;
         $n++;
     }
