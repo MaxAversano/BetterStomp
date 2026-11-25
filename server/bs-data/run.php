@@ -30,6 +30,8 @@ $st['lastRun'] = time();
 $meta = static_data();
 if (empty($meta['version'])) { save_json('state.json', $st); exit("Data Dragon non raggiungibile\n"); }
 $patch = major_minor($meta['version']);
+// prima un po' di lavoro sulle fonti esterne (LoLalytics, onetricks.gg), poi la raccolta Riot
+try { $extSteps = ext_work(14, $meta['version']); } catch (Throwable $e) { $extSteps = 0; @file_put_contents(STORE . '/ext_error.txt', date('c') . ' ' . $e->getMessage()); }
 $items = $meta['items'] ?? [];
 $sdir = shard_dir($patch);
 $oldFile = STORE . '/stats_' . $patch . '.json';
@@ -168,4 +170,4 @@ $st['lastAdded'] = $added;
 save_json('state.json', $st);
 flock($lock, LOCK_UN);
 @unlink(STORE . '/last_error.txt');
-echo "ok: +$added partite (totale {$db['total']}, patch $patch)\n";
+echo "ok: +$added partite (totale {$db['total']}, patch $patch) · fonti esterne: $extSteps passi\n";

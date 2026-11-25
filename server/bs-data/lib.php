@@ -293,3 +293,145 @@ function shard_dir($patch) { $d = STORE . '/s_' . $patch; if (!is_dir($d)) @mkdi
 function export_dir($patch) { $d = STORE . '/x_' . $patch; if (!is_dir($d)) @mkdir($d, 0755, true); return $d; }
 function bucket_file($key) { return 'b_' . preg_replace('/[^A-Za-z0-9_]/', '', str_replace('|', '__', $key)) . '.json'; }
 function write_atomic($path, $data) { file_put_contents($path . '.tmp', $data); rename($path . '.tmp', $path); }
+
+// ======================================================================
+// Fonti esterne (LoLalytics e onetricks.gg): il server le scarica piano, in sottofondo,
+// e prepara file compatti già pronti per l'app (così all'avvio non deve scaricare nulla).
+// ======================================================================
+const EXT_TIERS = ['emerald_plus', 'platinum_plus', 'master_plus', 'all'];
+const EXT_LANES = ['top', 'jungle', 'middle', 'bottom', 'support'];
+const EXT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+
+function ext_dir($sub) { $d = STORE . '/ext/' . $sub; if (!is_dir($d)) @mkdir($d, 0755, true); return $d; }
+
+function ext_get($url, $timeout = 10) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_ENCODING => '',
+        CURLOPT_FOLLOWLOCATION => true, CURLOPT_HTTPHEADER => ['User-Agent: ' . EXT_UA, 'Accept: application/json, text/html;q=0.9', 'Accept-Language: en-US,en;q=0.8']]);
+    $b = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return $code == 200 ? $b : null;
+}
+
+// campioni da Data Dragon: id numerico => id testuale (Ahri, MonkeyKing...)
+function ext_champs($version) {
+    $c = load_json('ext_champs.json', []);
+    if (($c['v'] ?? '') === $version && !empty($c['m'])) return $c['m'];
+    $d = json_decode((string)http_get("https://ddragon.leagueoflegends.com/cdn/$version/data/en_US/champion.json"), true);
+    $m = [];
+    foreach (($d['data'] ?? []) as $id => $ch) $m[(string)$ch['key']] = $id;
+    if ($m) save_json('ext_champs.json', ['v' => $version, 'm' => $m]);
+    return $m;
+}
+function ll_slug($id) { return $id === 'MonkeyKing' ? 'wukong' : strtolower($id); }
+function ll_url($ep, $q) { return 'https://a1.lolalytics.com/mega/?ep=' . $ep . '&v=1&queue=ranked&region=all&' . http_build_query($q); }
+
+// una "build" di LoLalytics in forma compatta
+function ll_pack_build($b) {
+    if (!$b) return null;
+    $it = $b['items'] ?? [];
+    $opts = function ($l) { $o = []; foreach (($l ?? []) as $x) $o[] = [(int)$x['id'], (int)$x['n'], (float)$x['wr']]; return $o; };
+    return [
+        'so' => (string)($b['skillorder']['id'] ?? ''), 'son' => (int)($b['skillorder']['n'] ?? 0), 'sowr' => (float)($b['skillorder']['wr'] ?? 0),
+        'sp' => (string)($b['skillpriority']['id'] ?? ''),
+        'sums' => $b['sums']['ids'] ?? [], 'sumsn' => (int)($b['sums']['n'] ?? 0), 'sumswr' => (float)($b['sums']['wr'] ?? 0),
+        'r' => ['pri' => $b['runes']['set']['pri'] ?? [], 'sec' => $b['runes']['set']['sec'] ?? [], 'mod' => $b['runes']['set']['mod'] ?? [],
+            'n' => (int)($b['runes']['n'] ?? 0), 'wr' => (float)($b['runes']['wr'] ?? 0)],
+        'st' => ['set' => $it['start']['set'] ?? [], 'n' => (int)($it['start']['n'] ?? 0), 'wr' => (float)($it['start']['wr'] ?? 0)],
+        'core' => ['set' => $it['core']['set'] ?? [], 'n' => (int)($it['core']['n'] ?? 0), 'wr' => (float)($it['core']['wr'] ?? 0)],
+        'i4' => $opts($it['item4'] ?? []), 'i5' => $opts($it['item5'] ?? []), 'i6' => $opts($it['item6'] ?? []),
+    ];
+}
+
+// un passo di lavoro LoLalytics: elenco dei campioni per corsia, poi build + matchup uno alla volta
+function ll_step(&$es, $champs) {
+    $q = &$es['ll'];
+    if (empty($q['todo'])) {
+        // nuovo giro: dalle liste per corsia (Smeraldo+) ricavo le coppie campione/corsia da scaricare
+        $pairs = [];
+        foreach (EXT_LANES as $lane) {
+            $j = json_decode((string)ext_get(ll_url('list', ['lane' => $lane, 'tier' => 'emerald_plus'])), true);
+            foreach (($j['cid'] ?? []) as $cid => $v) {
+                if (!isset($champs[(string)$cid])) continue;
+                if (($v['pctLane'] ?? 0) >= 8 || ($v['games'] ?? 0) >= 3000) $pairs[] = [(int)$cid, $lane, (int)($v['games'] ?? 0)];
+            }
+            if (!empty($j['cid'])) write_atomic(ext_dir('ll') . '/list_' . $lane . '_emerald_plus.json', json_encode($j['cid']));
+        }
+        if (!$pairs) return false;
+        usort($pairs, function ($a, $b) { return $b[2] <=> $a[2]; }); // prima i più giocati
+        $todo = [];
+        foreach (EXT_TIERS as $t) foreach ($pairs as $p) $todo[] = [$p[0], $p[1], $t];
+        $q = ['todo' => $todo, 'i' => 0, 'started' => time(), 'rounds' => ($q['rounds'] ?? 0)];
+        return true;
+    }
+    if ($q['i'] >= count($q['todo'])) { $q = ['todo' => [], 'rounds' => ($q['rounds'] ?? 0) + 1, 'lastRound' => time()]; return true; }
+    list($cid, $lane, $tier) = $q['todo'][$q['i']++];
+    $slug = ll_slug($champs[(string)$cid]);
+    $bf = json_decode((string)ext_get(ll_url('build-full', ['c' => $slug, 'lane' => $lane, 'tier' => $tier])), true);
+    if (empty($bf['header'])) return true;
+    $h = $bf['header'];
+    $cn = json_decode((string)ext_get(ll_url('counter', ['c' => $slug, 'lane' => $lane, 'vslane' => $lane, 'tier' => $tier])), true);
+    $vs = [];
+    foreach (($cn['counters'] ?? []) as $x) if (($x['n'] ?? 0) >= 30) $vs[] = [(int)$x['cid'], (float)$x['vsWr'], (int)$x['n'], (float)($x['d1'] ?? 0)];
+    $out = [
+        'c' => $cid, 'lane' => $lane, 't' => $tier, 'p' => (string)($h['patch'] ?? ''), 'at' => time(),
+        'h' => ['wr' => (float)($h['wr'] ?? 0), 'pr' => (float)($h['pr'] ?? 0), 'br' => (float)($h['br'] ?? 0), 'n' => (int)($h['n'] ?? 0),
+            'tier' => (string)($h['tier'] ?? ''), 'rank' => (int)($h['rank'] ?? 0), 'of' => (int)($h['rankTotal'] ?? 0), 'avg' => (float)($h['avgWr'] ?? 0)],
+        'lanes' => $bf['nav']['lanes'] ?? new stdClass(),
+        'b' => ll_pack_build($bf['summary']['pick'] ?? null), 'bw' => ll_pack_build($bf['summary']['win'] ?? null),
+        'vs' => $vs,
+    ];
+    write_atomic(ext_dir('ll/' . $tier) . '/' . $cid . '_' . $lane . '.json', json_encode($out, JSON_UNESCAPED_UNICODE));
+    return true;
+}
+
+// un passo di lavoro onetricks.gg: la pagina di un campione (partite recenti dei one-trick)
+function ot_step(&$es, $champs) {
+    $q = &$es['ot'];
+    if (empty($q['todo'])) { $ids = array_keys($champs); $q = ['todo' => $ids, 'i' => 0, 'rounds' => ($q['rounds'] ?? 0)]; }
+    if ($q['i'] >= count($q['todo'])) { $q = ['todo' => [], 'rounds' => ($q['rounds'] ?? 0) + 1, 'lastRound' => time()]; return true; }
+    $cid = (string)$q['todo'][$q['i']++];
+    $id = $champs[$cid];
+    $html = ext_get('https://www.onetricks.gg/champions/builds/' . rawurlencode($id), 15);
+    if (!$html || !preg_match('~<script id="__NEXT_DATA__" type="application/json"[^>]*>(.*?)</script>~s', $html, $mm)) return true;
+    $pp = json_decode($mm[1], true)['props']['pageProps'] ?? null;
+    unset($html, $mm);
+    if (!$pp) return true;
+    $games = [];
+    foreach (array_slice($pp['matchHistory'] ?? [], 0, 25) as $m) {
+        $d = is_string($m['details'] ?? null) ? json_decode($m['details'], true) : ($m['details'] ?? []);
+        $tl = is_string($m['timeline'] ?? null) ? json_decode($m['timeline'], true) : ($m['timeline'] ?? []);
+        $s = $d['playerData']['stats'] ?? [];
+        $items = [];
+        for ($i = 0; $i <= 5; $i++) if (($s['item' . $i] ?? 0) > 0) $items[] = (int)$s['item' . $i];
+        $games[] = ['n' => (string)($m['summonerName'] ?? ''), 't' => (string)($m['tier'] ?? ''), 'reg' => (string)($m['platformId'] ?? ''),
+            'w' => !empty($s['win']), 'k' => (int)($s['kills'] ?? 0), 'd' => (int)($s['deaths'] ?? 0), 'a' => (int)($s['assists'] ?? 0),
+            'it' => $items, 'ord' => $tl['orderedItems'] ?? [], 'ks' => (int)($s['perk0'] ?? 0), 'sub' => (int)($s['perkSubStyle'] ?? 0),
+            'sp' => [(int)($d['playerData']['spell1Id'] ?? 0), (int)($d['playerData']['spell2Id'] ?? 0)],
+            'opp' => (int)($m['gameRoles']['enemyChampion'] ?? 0), 'role' => (string)($m['gameRoles']['playerRole'] ?? ''),
+            'at' => (int)($m['timestamp'] ?? 0), 'p' => (string)($m['p'] ?? ''), 'id' => (string)($m['regChampGameId'] ?? '')];
+    }
+    $out = ['c' => (int)$cid, 'at' => time(), 'role' => (string)($pp['popRole'] ?? ''), 'g' => $games];
+    write_atomic(ext_dir('ot') . '/' . $cid . '.json', json_encode($out, JSON_UNESCAPED_UNICODE));
+    return true;
+}
+
+// lavoro sulle fonti esterne per al massimo $budget secondi
+function ext_work($budget, $version) {
+    $t0 = microtime(true);
+    $champs = ext_champs($version);
+    if (!$champs) return 0;
+    $es = load_json('ext_state.json', ['ll' => [], 'ot' => []]);
+    $n = 0;
+    $otDone = false;
+    while (microtime(true) - $t0 < $budget) {
+        if (!$otDone) { ot_step($es, $champs); $otDone = true; $n++; continue; } // una pagina onetricks per esecuzione
+        if (!ll_step($es, $champs)) break;
+        $n++;
+    }
+    $es['lastWork'] = time();
+    $es['lastSteps'] = $n;
+    save_json('ext_state.json', $es);
+    return $n;
+}

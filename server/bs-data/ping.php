@@ -28,6 +28,13 @@ if (is_file(__DIR__ . '/config.php')) {
     $files = glob($store . '/*.json') ?: [];
     usort($files, function ($a, $b) { return filesize($b) - filesize($a); });
     foreach (array_slice($files, 0, 6) as $f) echo "file " . basename($f) . ": " . round(filesize($f) / 1048576, 1) . " MB\n";
+    $es = is_file($store . '/ext_state.json') ? json_decode(file_get_contents($store . '/ext_state.json'), true) : null;
+    if ($es) {
+        $ll = $es['ll'] ?? []; $ot = $es['ot'] ?? [];
+        echo "LoLalytics: " . (count(glob($store . '/ext/ll/*/*.json') ?: [])) . " build salvate · giro " . (($ll['i'] ?? 0)) . "/" . count($ll['todo'] ?? []) . " · giri completi " . ($ll['rounds'] ?? 0) . "\n";
+        echo "onetricks.gg: " . (count(glob($store . '/ext/ot/*.json') ?: [])) . " campioni · giri completi " . ($ot['rounds'] ?? 0) . "\n";
+    }
+    if (is_file($store . '/ext_error.txt')) echo "errore fonti esterne: " . file_get_contents($store . '/ext_error.txt') . "\n";
     $sh = glob($store . '/s_*/*.json') ?: [];
     if ($sh) { $big = 0; foreach ($sh as $f) $big = max($big, filesize($f)); echo "file divisi: " . count($sh) . " (il più grande " . round($big / 1048576, 1) . " MB)\n"; }
     $free = @disk_free_space(__DIR__);

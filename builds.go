@@ -97,6 +97,17 @@ func resolveBuildVs(champ int, pos, mode, tier string, usePersonal bool, variant
 	} else {
 		b = mergeDetected(b, engine.ChampionStats(champ, mode, tier, b.Position))
 	}
+	// LoLalytics (preparato dal server) come base quando c'è: molte più partite;
+	// OP.GG e il nostro motore aggiungono le alternative
+	if lb, ok := llBuild(champ, pos, mode, tier); ok {
+		if b.Champion != 0 || len(b.Core) > 0 {
+			keepOpp := b.Matchup
+			lb = mergeDetected(lb, b)
+			lb.Matchup = keepOpp
+			lb.Source = "LoLalytics+"
+		}
+		b = lb
+	}
 	if b.Position == "" {
 		b.Position = pos
 	}
@@ -106,6 +117,14 @@ func resolveBuildVs(champ int, pos, mode, tier string, usePersonal bool, variant
 			b.Champion = champ
 		}
 		b = applyMatchup(b, vs)
+	}
+	if og := otGames(champ, b.Position); len(og) > 0 {
+		// one-trick da onetricks.gg (aggiornati dal server), prima di quelli di OP.GG
+		if len(og) > 12 {
+			og = og[:12]
+		}
+		b.ProGames = append(fillOTPRunes(og, b.RunePages), b.ProGames...)
+		b.OtpPending = false
 	}
 	if len(otp) > 0 {
 		var mine []ProGame

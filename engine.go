@@ -2019,6 +2019,8 @@ type EngineStatus struct {
 	Prev        int    `json:"prev"`
 	Remote      int    `json:"remote"`
 	RemoteRun   int64  `json:"remoteRun"`
+	ExtLL       int    `json:"extLL"`
+	ExtOT       int    `json:"extOT"`
 	RemoteAt    int64  `json:"remoteAt"`
 	RemoteErr   string `json:"remoteErr"`
 	HasRemote   bool   `json:"hasRemote"`
@@ -2046,6 +2048,7 @@ func (e *Engine) Status() EngineStatus {
 		st.Remote = e.remoteLive
 	}
 	st.RemoteRun = e.remoteRun
+	st.ExtLL, st.ExtOT, _, _ = extStatus()
 	if !e.remoteAt.IsZero() {
 		st.RemoteAt = e.remoteAt.Unix()
 	}

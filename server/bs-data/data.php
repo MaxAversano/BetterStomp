@@ -15,6 +15,20 @@ if (isset($_GET['status'])) {
     ]);
     exit;
 }
+// fonti esterne già pronte: ?ext=ll&tier=emerald_plus (LoLalytics) oppure ?ext=ot (onetricks.gg)
+if (isset($_GET['ext'])) {
+    $kind = $_GET['ext'] === 'ot' ? 'ot' : 'll';
+    $dir = STORE . '/ext/' . $kind;
+    if ($kind === 'll') $dir .= '/' . preg_replace('/[^a-z_]/', '', $_GET['tier'] ?? 'emerald_plus');
+    $files = is_dir($dir) ? (glob($dir . '/*.json') ?: []) : [];
+    $since = (int)($_GET['since'] ?? 0); // solo i file cambiati dopo questo momento
+    $latest = 0; $parts = [];
+    foreach ($files as $f) { $mt = filemtime($f); $latest = max($latest, $mt); if ($mt > $since) $parts[] = trim((string)file_get_contents($f)); }
+    $body = '{"at":' . $latest . ',"items":[' . implode(',', array_filter($parts, function ($x) { return $x !== '' && $x[0] === '{'; })) . ']}';
+    header('Content-Type: application/json; charset=utf-8');
+    if (strpos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') !== false && function_exists('gzencode')) { header('Content-Encoding: gzip'); echo gzencode($body, 6); } else echo $body;
+    exit;
+}
 $patch = preg_replace('/[^0-9.]/', '', $_GET['patch'] ?? ($state['patch'] ?? ''));
 $xdir = STORE . '/x_' . $patch;
 $parts = $patch && is_dir($xdir) ? (glob($xdir . '/b_*.json') ?: []) : [];

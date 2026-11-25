@@ -86,6 +86,7 @@ func main() {
 	go liveLoop()
 	go engineLoop()
 	go remoteLoop()
+	go extLoop()
 	go legacyLoop()
 	go patchLoop()
 	go startOverlay()
