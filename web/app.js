@@ -558,8 +558,9 @@ function champBuildView(b0, variant){
   const wr = b0.itemWR || {};
   const iimg = (id, c='') => `<img class="${c}" src="${iImg(id)}" title="${esc(S.items[id]?.name||'')}">`;
   // ---- rune: keystone in alto, albero completo, set in basso (come onetricks.gg)
-  const kss = (b0.runeKeystones || []).filter(o=>o.pick>=0.01);
   const pages = b0.runePages || [];
+  // solo le rune principali di cui abbiamo almeno una pagina completa (altrimenti il clic non mostrerebbe nulla)
+  const kss = (b0.runeKeystones || []).filter(o=>o.pick>=0.01 && pages.some(p=>p.perks?.[0]===o.ids[0]));
   const ksSel = S.ui.ksSel ?? (v?.keystone || kss[0]?.ids[0]);
   const ksPages = pages.filter(p=>p.perks[0]===ksSel).slice(0,4);
   const totKs = ksPages.reduce((a,p)=>a+p.games,0) || 1;
