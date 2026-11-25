@@ -3,6 +3,14 @@
 require __DIR__ . '/lib.php';
 check_token();
 @set_time_limit(60);
+@ini_set('memory_limit', '512M'); // i file delle statistiche crescono durante la patch
+// se PHP si blocca (memoria, tempo...) l'errore resta scritto e ping.php lo mostra
+register_shutdown_function(function () {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        @file_put_contents(STORE . '/last_error.txt', date('c') . ' ' . $e['message'] . ' (' . basename($e['file']) . ':' . $e['line'] . ')');
+    }
+});
 ignore_user_abort(true);
 header('Content-Type: text/plain; charset=utf-8');
 
@@ -80,11 +88,12 @@ if ($added > 0) {
     file_put_contents(STORE . '/export_' . $patch . '.json.tmp', json_encode(to_go($db), JSON_UNESCAPED_UNICODE));
     rename(STORE . '/export_' . $patch . '.json.tmp', STORE . '/export_' . $patch . '.json');
 }
-if (count($seen) > 400000) $seen = array_slice($seen, -300000, null, true);
+if (count($seen) > 150000) $seen = array_slice($seen, -100000, null, true);
 save_json('seen_' . $patch . '.json', $seen);
 $st['patch'] = $patch;
 $st['total'] = $db['total'];
 $st['lastAdded'] = $added;
 save_json('state.json', $st);
 flock($lock, LOCK_UN);
+@unlink(STORE . '/last_error.txt');
 echo "ok: +$added partite (totale {$db['total']}, patch $patch)\n";
