@@ -66,16 +66,20 @@ function riot($url) {
     global $RIOT_KEY;
     $st = &$GLOBALS['STATE'];
     $now = microtime(true);
-    $hits = array_values(array_filter(isset($st['hits']) ? $st['hits'] : [], function ($t) use ($now) { return $now - $t < 120; }));
+    // i limiti di Riot valgono per ogni "routing" separatamente (euw1, europe, na1, americas...):
+    // tengo un conteggio per host, così ogni regione usa tutta la sua quota
+    $host = parse_url($url, PHP_URL_HOST) ?: 'x';
+    if (!isset($st['hits']) || !is_array($st['hits']) || (isset($st['hits'][0]) && !is_array($st['hits'][0]))) $st['hits'] = [];
+    $hits = array_values(array_filter($st['hits'][$host] ?? [], function ($t) use ($now) { return $now - $t < 120; }));
     $last1 = count(array_filter($hits, function ($t) use ($now) { return $now - $t < 1; }));
     $max2 = $st['max2'] ?? 95; $max1 = $st['max1'] ?? 18;
     // la raccolta automatica lascia libere alcune richieste per il profilo (player.php)
     $reserve = isset($GLOBALS['RESERVE']) ? $GLOBALS['RESERVE'] : 0;
-    if (count($hits) >= $max2 - $reserve) { $st['hits'] = $hits; return ['wait' => true]; }
+    if (count($hits) >= $max2 - $reserve) { $st['hits'][$host] = $hits; return ['wait' => true]; }
     if ($last1 >= $max1) { usleep(1100000); }
-    if (!empty($st['blockedUntil']) && $st['blockedUntil'] > time()) return ['wait' => true];
+    if (!empty($st['blocked'][$host]) && $st['blocked'][$host] > time()) return ['wait' => true];
     $hits[] = microtime(true);
-    $st['hits'] = $hits;
+    $st['hits'][$host] = $hits;
     $st['calls'] = ($st['calls'] ?? 0) + 1;
     $body = http_get($url, ['X-Riot-Token: ' . $RIOT_KEY], $code, $rh);
     if (!empty($rh['x-app-rate-limit'])) {
@@ -85,7 +89,7 @@ function riot($url) {
             if ($s == 120) $st['max2'] = max(1, intdiv($n * 9, 10));
         }
     }
-    if ($code == 429) { $st['blockedUntil'] = time() + (int)($rh['retry-after'] ?? 10); return ['wait' => true]; }
+    if ($code == 429) { $st['blocked'][$host] = time() + (int)($rh['retry-after'] ?? 10); return ['wait' => true]; }
     if ($code == 401 || $code == 403) { $st['error'] = 'chiave Riot API non valida o scaduta'; return ['fatal' => true]; }
     if ($code != 200) return ['error' => $code];
     $st['error'] = '';

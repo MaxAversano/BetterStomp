@@ -1,8 +1,9 @@
 <?php
-// Avviato ogni minuto (cron di Aruba o cron-job.org): raccoglie partite per circa 25 secondi.
+// Avviato ogni minuto (cron di Aruba o cron-job.org): raccoglie partite per circa 50 secondi,
+// da più regioni insieme (ognuna ha la sua quota di richieste nella Riot API).
 require __DIR__ . '/lib.php';
 check_token();
-@set_time_limit(60);
+@set_time_limit(110);
 // se PHP si blocca (memoria, tempo...) l'errore resta scritto e ping.php lo mostra
 register_shutdown_function(function () {
     $e = error_get_last();
@@ -17,11 +18,13 @@ $lock = fopen(STORE . '/run.lock', 'c');
 if (!flock($lock, LOCK_EX | LOCK_NB)) exit("già in esecuzione\n");
 
 $start = microtime(true);
-$budget = 25; // secondi per esecuzione (sotto i limiti dell'hosting condiviso)
-$GLOBALS['RESERVE'] = 40; // richieste lasciate al calcolo della stagione
+$budget = 50; // secondi per esecuzione (il cron riparte ogni minuto)
+$GLOBALS['RESERVE'] = 20; // richieste lasciate al calcolo della stagione (per host)
 $GLOBALS['STATE'] = load_json('state.json', ['tierIdx' => 0, 'pools' => [], 'hits' => [], 'calls' => 0, 'runs' => 0, 'error' => '']);
 $st = &$GLOBALS['STATE'];
 $st['runs'] = ($st['runs'] ?? 0) + 1;
+if (!is_array($st['tierIdx'] ?? null)) $st['tierIdx'] = [];
+foreach (array_keys($st['pools'] ?? []) as $k) if (strpos($k, '|') === false) unset($st['pools'][$k]); // vecchie chiavi senza regione
 $st['lastRun'] = time();
 
 $meta = static_data();
@@ -70,15 +73,35 @@ $loadBucket = function ($key) use (&$db, &$dirty, $sdir) {
     $dirty[$key] = true;
 };
 $seen = load_json('seen_' . $patch . '.json', []);
-$plat = 'https://' . $REGION . '.api.riotgames.com';
-$reg = 'https://' . regional($REGION) . '.api.riotgames.com';
+// la regione del server per prima; le altre raddoppiano/triplicano le partite raccolte
+$regions = array_values(array_unique([$REGION, 'euw1', 'na1', 'kr']));
+$out = []; // regioni senza più richieste disponibili in questa esecuzione
 $added = 0;
+$byReg = [];
 
-while (microtime(true) - $start < $budget) {
-    $tier = TIERS[$st['tierIdx'] % count(TIERS)];
-    $st['tierIdx']++;
+// se la memoria sale troppo, salvo i gruppi già aggiornati e li tolgo dalla memoria
+$flush = function () use (&$db, &$dirty, $sdir, $patch) {
+    $xdir = export_dir($patch);
+    foreach (array_keys($dirty) as $k) {
+        write_atomic($sdir . '/' . bucket_file($k), json_encode(['key' => $k, 'b' => $db['buckets'][$k]], JSON_UNESCAPED_UNICODE));
+        write_atomic($xdir . '/' . bucket_file($k), json_encode([$k => bucket_go($db['buckets'][$k])], JSON_UNESCAPED_UNICODE));
+        unset($db['buckets'][$k]);
+    }
+    $dirty = [];
+};
+
+$ri = $st['regIdx'] ?? 0;
+while (microtime(true) - $start < $budget && count($out) < count($regions)) {
+    $region = $regions[$ri++ % count($regions)];
+    if (isset($out[$region])) continue;
+    $plat = 'https://' . $region . '.api.riotgames.com';
+    $reg = 'https://' . regional($region) . '.api.riotgames.com';
+    $ti = $st['tierIdx'][$region] ?? 0;
+    $tier = TIERS[$ti % count(TIERS)];
+    $st['tierIdx'][$region] = $ti + 1;
     // giocatore casuale di quel rango
-    $pool = $st['pools'][$tier] ?? [];
+    $pkey = $region . '|' . $tier;
+    $pool = $st['pools'][$pkey] ?? [];
     if (!$pool) {
         if (in_array($tier, ['MASTER', 'GRANDMASTER', 'CHALLENGER'])) {
             $r = riot($plat . '/lol/league/v4/' . strtolower($tier) . 'leagues/by-queue/RANKED_SOLO_5x5');
@@ -88,22 +111,25 @@ while (microtime(true) - $start < $budget) {
             $r = riot($plat . "/lol/league/v4/entries/RANKED_SOLO_5x5/$tier/$div?page=" . random_int(1, 3));
             $entries = $r['data'] ?? [];
         }
-        if (!empty($r['wait']) || !empty($r['fatal'])) break;
+        if (!empty($r['fatal'])) break;
+        if (!empty($r['wait'])) { $out[$region] = 1; continue; }
         foreach ($entries as $e) if (!empty($e['puuid'])) $pool[] = $e['puuid'];
         shuffle($pool);
         $pool = array_slice($pool, 0, 60);
     }
     if (!$pool) continue;
     $puuid = array_pop($pool);
-    $st['pools'][$tier] = $pool;
+    $st['pools'][$pkey] = $pool;
     $r = riot($reg . "/lol/match/v5/matches/by-puuid/$puuid/ids?start=0&count=12");
-    if (!empty($r['wait']) || !empty($r['fatal'])) break;
+    if (!empty($r['fatal'])) break;
+    if (!empty($r['wait'])) { $out[$region] = 1; continue; }
     $taken = 0;
     foreach (($r['data'] ?? []) as $id) {
         if ($taken >= 5 || microtime(true) - $start > $budget) break;
         if (isset($seen[$id])) continue;
         $mr = riot($reg . '/lol/match/v5/matches/' . $id);
-        if (!empty($mr['wait']) || !empty($mr['fatal'])) break 2;
+        if (!empty($mr['fatal'])) break 2;
+        if (!empty($mr['wait'])) { $out[$region] = 1; break; }
         $seen[$id] = 1;
         $m = $mr['data'] ?? null;
         if (!$m) continue;
@@ -111,15 +137,19 @@ while (microtime(true) - $start < $budget) {
         $mode = queue_group($m['info']['queueId'] ?? 0, $m['info']['gameMode'] ?? '');
         if ($mode === '' || ($m['info']['gameDuration'] ?? 0) < 300) continue;
         $tl = null;
-        if (positional($mode) && mt_rand(1, 100) <= 35) {
+        if (positional($mode) && mt_rand(1, 100) <= 25) {
             $tr = riot($reg . '/lol/match/v5/matches/' . $id . '/timeline');
             $tl = $tr['data'] ?? null;
         }
         $loadBucket($mode . '|' . $tier);
-        ingest($db, $m, $mode, $tier, $tl, $items, $REGION);
+        ingest($db, $m, $mode, $tier, $tl, $items, $region);
         $taken++; $added++;
+        $byReg[$region] = ($byReg[$region] ?? 0) + 1;
+        if (memory_get_usage(true) > 500 * 1048576) $flush();
     }
 }
+$st['regIdx'] = $ri % count($regions);
+$st['byRegion'] = $byReg;
 
 if ($added > 0) {
     $xdir = export_dir($patch);

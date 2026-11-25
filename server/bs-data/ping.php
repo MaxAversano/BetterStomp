@@ -21,6 +21,7 @@ if (is_file(__DIR__ . '/config.php')) {
     if ($st) {
         echo "patch: " . ($st['patch'] ?? '?') . " · partite: " . ($st['total'] ?? 0) . " · esecuzioni: " . ($st['runs'] ?? 0) . "\n";
         echo "ultima esecuzione: " . (!empty($st['lastRun']) ? date('Y-m-d H:i:s', $st['lastRun']) : 'mai') . " (+" . ($st['lastAdded'] ?? 0) . ")\n";
+        if (!empty($st['byRegion'])) { $parts = []; foreach ($st['byRegion'] as $r => $n) $parts[] = "$r +$n"; echo "ultima esecuzione per regione: " . implode(' · ', $parts) . "\n"; }
         if (!empty($st['error'])) echo "errore Riot: " . $st['error'] . "\n";
     }
     if (is_file($store . '/last_error.txt')) echo "ultimo errore PHP: " . file_get_contents($store . '/last_error.txt') . "\n";
