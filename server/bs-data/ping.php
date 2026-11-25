@@ -32,7 +32,7 @@ if (is_file(__DIR__ . '/config.php')) {
     if ($es) {
         $ll = $es['ll'] ?? []; $ot = $es['ot'] ?? [];
         echo "LoLalytics: " . (count(glob($store . '/ext/ll/*/*.json') ?: [])) . " build salvate · giro " . (($ll['i'] ?? 0)) . "/" . count($ll['todo'] ?? []) . " · giri completi " . ($ll['rounds'] ?? 0) . "\n";
-        echo "onetricks.gg: " . (count(glob($store . '/ext/ot/*.json') ?: [])) . " campioni · giri completi " . ($ot['rounds'] ?? 0) . "\n";
+        echo "onetricks.gg: " . (count(glob($store . '/ext/ot/*.json') ?: [])) . " campioni · giri completi " . ($ot['rounds'] ?? 0) . (!empty($ot['err']) ? " · ultimo errore: " . $ot['err'] : '') . "\n";
     }
     if (is_file($store . '/ext_error.txt')) echo "errore fonti esterne: " . file_get_contents($store . '/ext_error.txt') . "\n";
     $sh = glob($store . '/s_*/*.json') ?: [];

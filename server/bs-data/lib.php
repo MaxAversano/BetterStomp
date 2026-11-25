@@ -310,6 +310,7 @@ function ext_get($url, $timeout = 10) {
         CURLOPT_FOLLOWLOCATION => true, CURLOPT_HTTPHEADER => ['User-Agent: ' . EXT_UA, 'Accept: application/json, text/html;q=0.9', 'Accept-Language: en-US,en;q=0.8']]);
     $b = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $GLOBALS['EXT_LAST'] = $code == 200 ? '' : ('HTTP ' . $code . ($code ? '' : ' ' . curl_error($ch)));
     curl_close($ch);
     return $code == 200 ? $b : null;
 }
@@ -394,7 +395,9 @@ function ot_step(&$es, $champs) {
     $cid = (string)$q['todo'][$q['i']++];
     $id = $champs[$cid];
     $html = ext_get('https://www.onetricks.gg/champions/builds/' . rawurlencode($id), 15);
-    if (!$html || !preg_match('~<script id="__NEXT_DATA__" type="application/json"[^>]*>(.*?)</script>~s', $html, $mm)) return true;
+    if (!$html) { $q['err'] = $id . ': ' . ($GLOBALS['EXT_LAST'] ?? '?'); return true; }
+    if (!preg_match('~<script id="__NEXT_DATA__" type="application/json"[^>]*>(.*?)</script>~s', $html, $mm)) { $q['err'] = $id . ': pagina senza dati (' . strlen($html) . ' byte) ' . substr(strip_tags($html), 0, 80); return true; }
+    $q['err'] = '';
     $pp = json_decode($mm[1], true)['props']['pageProps'] ?? null;
     unset($html, $mm);
     if (!$pp) return true;

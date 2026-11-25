@@ -132,7 +132,7 @@ func extLoop() {
 	first := true
 	for {
 		if !first {
-			time.Sleep(10 * time.Minute)
+			time.Sleep(4 * time.Minute)
 		}
 		first = false
 		s := getSettings()
