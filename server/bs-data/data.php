@@ -16,13 +16,33 @@ if (isset($_GET['status'])) {
     exit;
 }
 $patch = preg_replace('/[^0-9.]/', '', $_GET['patch'] ?? ($state['patch'] ?? ''));
-$file = STORE . '/export_' . $patch . '.json';
-if (!$patch || !is_file($file)) { http_response_code(404); exit('nessun dato'); }
+$xdir = STORE . '/x_' . $patch;
+$parts = $patch && is_dir($xdir) ? (glob($xdir . '/b_*.json') ?: []) : [];
+if ($parts) {
+    // statistiche divise per gruppo: le rimetto insieme come testo, senza decodificarle
+    $latest = 0;
+    foreach ($parts as $f) $latest = max($latest, filemtime($f));
+    $body = '{"patch":' . json_encode($patch) . ',"total":' . (int)($state['total'] ?? 0) . ',"buckets":{';
+    $first = true;
+    foreach ($parts as $f) {
+        $j = trim((string)file_get_contents($f));
+        if (strlen($j) < 3 || $j[0] !== '{') continue;
+        $body .= ($first ? '' : ',') . substr($j, 1, -1);
+        $first = false;
+    }
+    $pro = is_file($xdir . '/pro.json') ? trim(file_get_contents($xdir . '/pro.json')) : '{}';
+    $body .= '},"seen":{},"pro":' . ($pro !== '' ? $pro : '{}') . '}';
+} else {
+    $file = STORE . '/export_' . $patch . '.json';
+    if (!$patch || !is_file($file)) { http_response_code(404); exit('nessun dato'); }
+    $latest = filemtime($file);
+    $body = file_get_contents($file);
+}
 header('Content-Type: application/json; charset=utf-8');
-header('Last-Modified: ' . gmdate('D, d M Y H:i:s', filemtime($file)) . ' GMT');
+header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $latest) . ' GMT');
 if (!ini_get('zlib.output_compression') && strpos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') !== false && function_exists('gzencode')) {
     header('Content-Encoding: gzip');
-    echo gzencode(file_get_contents($file), 6);
+    echo gzencode($body, 6);
 } else {
-    readfile($file);
+    echo $body;
 }

@@ -262,19 +262,30 @@ function add_pro(&$db, $m, $p, $tier, $region, $mode, $starts, $skills) {
 }
 
 // Go si aspetta oggetti JSON per le mappe (anche vuote o con chiavi numeriche)
-function to_go($db) {
+function bucket_go($b) {
     $obj = function ($a) { return (object)($a ?: []); };
-    $out = ['patch' => $db['patch'], 'total' => $db['total'], 'buckets' => [], 'seen' => new stdClass(), 'pro' => []];
-    foreach ($db['buckets'] as $k => $b) {
-        $champs = [];
-        foreach ($b['champs'] as $ck => $a) {
-            foreach (['items','boots','start','runes','spells','skills','seq','builds','lr','lane','vs','with'] as $f) $a[$f] = $obj($a[$f] ?? []);
-            $champs[$ck] = $a;
-        }
-        $out['buckets'][$k] = ['matches' => $b['matches'], 'bans' => $obj($b['bans']), 'champs' => $obj($champs)];
+    $champs = [];
+    foreach ($b['champs'] as $ck => $a) {
+        foreach (['items','boots','start','runes','spells','skills','seq','builds','lr','lane','vs','with'] as $f) $a[$f] = $obj($a[$f] ?? []);
+        $champs[$ck] = $a;
     }
-    $out['buckets'] = $obj($out['buckets']);
-    foreach (($db['pro'] ?? []) as $c => $l) $out['pro'][(string)$c] = array_values($l);
-    $out['pro'] = $obj($out['pro']);
+    return ['matches' => $b['matches'], 'bans' => $obj($b['bans']), 'champs' => $obj($champs)];
+}
+function pro_go($pro) {
+    $out = [];
+    foreach (($pro ?? []) as $c => $l) $out[(string)$c] = array_values($l);
+    return (object)$out;
+}
+function to_go($db) {
+    $out = ['patch' => $db['patch'], 'total' => $db['total'], 'buckets' => [], 'seen' => new stdClass(), 'pro' => pro_go($db['pro'] ?? [])];
+    foreach ($db['buckets'] as $k => $b) $out['buckets'][$k] = bucket_go($b);
+    $out['buckets'] = (object)$out['buckets'];
     return $out;
 }
+
+// ---- statistiche divise per gruppo (modalità|rango): un file a testa, così non serve mai
+// caricare tutto in memoria (il file unico da 46 MB superava il limite dell'hosting)
+function shard_dir($patch) { $d = STORE . '/s_' . $patch; if (!is_dir($d)) @mkdir($d, 0755, true); return $d; }
+function export_dir($patch) { $d = STORE . '/x_' . $patch; if (!is_dir($d)) @mkdir($d, 0755, true); return $d; }
+function bucket_file($key) { return 'b_' . preg_replace('/[^A-Za-z0-9_]/', '', str_replace('|', '__', $key)) . '.json'; }
+function write_atomic($path, $data) { file_put_contents($path . '.tmp', $data); rename($path . '.tmp', $path); }

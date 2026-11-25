@@ -3,7 +3,6 @@
 require __DIR__ . '/lib.php';
 check_token();
 @set_time_limit(60);
-@ini_set('memory_limit', '512M'); // i file delle statistiche crescono durante la patch
 // se PHP si blocca (memoria, tempo...) l'errore resta scritto e ping.php lo mostra
 register_shutdown_function(function () {
     $e = error_get_last();
@@ -29,9 +28,47 @@ $meta = static_data();
 if (empty($meta['version'])) { save_json('state.json', $st); exit("Data Dragon non raggiungibile\n"); }
 $patch = major_minor($meta['version']);
 $items = $meta['items'] ?? [];
-$dbFile = 'stats_' . $patch . '.json';
-$db = load_json($dbFile, null);
-if (!$db) $db = ['patch' => $patch, 'total' => 0, 'buckets' => [], 'pro' => []];
+$sdir = shard_dir($patch);
+$oldFile = STORE . '/stats_' . $patch . '.json';
+if (is_file($oldFile)) {
+    // conversione una tantum dal vecchio file unico; se una volta è già andata in crash
+    // per la memoria, lo metto da parte e riparto (meglio che restare bloccati)
+    $mark = STORE . '/migrating_' . $patch;
+    if (is_file($mark)) {
+        rename($oldFile, $oldFile . '.troppo-grande');
+        @unlink($mark);
+    } else {
+        touch($mark);
+        @ini_set('memory_limit', '-1');
+        $old = json_decode(file_get_contents($oldFile), true);
+        if (is_array($old)) {
+            $xdir = export_dir($patch);
+            foreach (($old['buckets'] ?? []) as $k => $b) {
+                write_atomic($sdir . '/' . bucket_file($k), json_encode(['key' => $k, 'b' => $b], JSON_UNESCAPED_UNICODE));
+                write_atomic($xdir . '/' . bucket_file($k), json_encode([$k => bucket_go($b)], JSON_UNESCAPED_UNICODE));
+            }
+            write_atomic($sdir . '/meta.json', json_encode(['total' => $old['total'] ?? 0, 'pro' => $old['pro'] ?? []], JSON_UNESCAPED_UNICODE));
+            write_atomic($xdir . '/pro.json', json_encode(pro_go($old['pro'] ?? []), JSON_UNESCAPED_UNICODE));
+            unset($old);
+            rename($oldFile, $oldFile . '.convertito');
+            @unlink(STORE . '/export_' . $patch . '.json');
+        }
+        @unlink($mark);
+        @ini_set('memory_limit', '1024M');
+    }
+}
+$meta0 = is_file($sdir . '/meta.json') ? json_decode(file_get_contents($sdir . '/meta.json'), true) : null;
+$db = ['patch' => $patch, 'total' => $meta0['total'] ?? 0, 'buckets' => [], 'pro' => $meta0['pro'] ?? []];
+unset($meta0);
+$dirty = [];
+$loadBucket = function ($key) use (&$db, &$dirty, $sdir) {
+    if (!isset($db['buckets'][$key])) {
+        $f = $sdir . '/' . bucket_file($key);
+        $d = is_file($f) ? json_decode(file_get_contents($f), true) : null;
+        $db['buckets'][$key] = $d['b'] ?? ['matches' => 0, 'bans' => [], 'champs' => []];
+    }
+    $dirty[$key] = true;
+};
 $seen = load_json('seen_' . $patch . '.json', []);
 $plat = 'https://' . $REGION . '.api.riotgames.com';
 $reg = 'https://' . regional($REGION) . '.api.riotgames.com';
@@ -78,15 +115,20 @@ while (microtime(true) - $start < $budget) {
             $tr = riot($reg . '/lol/match/v5/matches/' . $id . '/timeline');
             $tl = $tr['data'] ?? null;
         }
+        $loadBucket($mode . '|' . $tier);
         ingest($db, $m, $mode, $tier, $tl, $items, $REGION);
         $taken++; $added++;
     }
 }
 
 if ($added > 0) {
-    save_json($dbFile, $db);
-    file_put_contents(STORE . '/export_' . $patch . '.json.tmp', json_encode(to_go($db), JSON_UNESCAPED_UNICODE));
-    rename(STORE . '/export_' . $patch . '.json.tmp', STORE . '/export_' . $patch . '.json');
+    $xdir = export_dir($patch);
+    foreach (array_keys($dirty) as $k) {
+        write_atomic($sdir . '/' . bucket_file($k), json_encode(['key' => $k, 'b' => $db['buckets'][$k]], JSON_UNESCAPED_UNICODE));
+        write_atomic($xdir . '/' . bucket_file($k), json_encode([$k => bucket_go($db['buckets'][$k])], JSON_UNESCAPED_UNICODE));
+    }
+    write_atomic($sdir . '/meta.json', json_encode(['total' => $db['total'], 'pro' => $db['pro']], JSON_UNESCAPED_UNICODE));
+    write_atomic($xdir . '/pro.json', json_encode(pro_go($db['pro']), JSON_UNESCAPED_UNICODE));
 }
 if (count($seen) > 150000) $seen = array_slice($seen, -100000, null, true);
 save_json('seen_' . $patch . '.json', $seen);

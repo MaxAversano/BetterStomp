@@ -27,6 +27,8 @@ if (is_file(__DIR__ . '/config.php')) {
     $files = glob($store . '/*.json') ?: [];
     usort($files, function ($a, $b) { return filesize($b) - filesize($a); });
     foreach (array_slice($files, 0, 6) as $f) echo "file " . basename($f) . ": " . round(filesize($f) / 1048576, 1) . " MB\n";
+    $sh = glob($store . '/s_*/*.json') ?: [];
+    if ($sh) { $big = 0; foreach ($sh as $f) $big = max($big, filesize($f)); echo "file divisi: " . count($sh) . " (il più grande " . round($big / 1048576, 1) . " MB)\n"; }
     $free = @disk_free_space(__DIR__);
     if ($free) echo "spazio libero: " . round($free / 1073741824, 1) . " GB\n";
 }
